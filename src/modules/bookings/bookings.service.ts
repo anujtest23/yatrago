@@ -10,9 +10,14 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { RejectBookingDto } from './dto/reject-booking.dto';
 
+import { NotificationsService } from '../notifications/notifications.service';
+
 @Injectable()
 export class BookingsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   // ── POST /bookings ───────────────────────────────────────────
   async create(userId: string, dto: CreateBookingDto) {
@@ -317,100 +322,123 @@ export class BookingsService {
   }
 
   // ── PATCH /bookings/:id/accept ───────────────────────────────
-  async accept(userId: string, bookingId: string) {
-    const driver = await this.prisma.driverProfile.findUnique({
-      where: { userId },
-    });
-    if (!driver) throw new ForbiddenException('Driver profile not found');
+// ── PATCH /bookings/:id/accept ───────────────────────────────
+async accept(userId: string, bookingId: string) {
+  const driver = await this.prisma.driverProfile.findUnique({
+    where: { userId },
+  });
+  if (!driver) throw new ForbiddenException('Driver profile not found');
 
-    const booking = await this.prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: { ride: true },
-    });
+  const booking = await this.prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { ride: true },
+  });
 
-    if (!booking) throw new NotFoundException('Booking not found');
+  if (!booking) throw new NotFoundException('Booking not found');
 
-    if (booking.ride.driverId !== driver.id) {
-      throw new ForbiddenException('This booking is not for your ride');
-    }
+  if (booking.ride.driverId !== driver.id) {
+    throw new ForbiddenException('This booking is not for your ride');
+  }
 
-    if (booking.status !== 'pending') {
-      throw new BadRequestException(
-        `Cannot accept a booking with status: ${booking.status}`,
-      );
-    }
+  if (booking.status !== 'pending') {
+    throw new BadRequestException(
+      `Cannot accept a booking with status: ${booking.status}`,
+    );
+  }
 
-    const updated = await this.prisma.booking.update({
+  const updated = await this.prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      status: 'confirmed' as any,
+      confirmedAt: new Date(),
+    },
+    include: {
+      passenger: {
+        select: {
+          fullName: true,
+          phoneNumber: true,
+        },
+      },
+    },
+  });
+
+  // Notify passenger their booking was accepted
+  await this.notifications.createNotification(
+    booking.passengerId,
+    'booking_confirmed',
+    'Booking Confirmed!',
+    'Your booking has been accepted by the driver.',
+    { bookingId },
+  );
+
+  return {
+    message: 'Booking accepted successfully',
+    booking: updated,
+  };
+}
+
+// ── PATCH /bookings/:id/reject ───────────────────────────────
+async reject(
+  userId: string,
+  bookingId: string,
+  dto: RejectBookingDto,
+) {
+  const driver = await this.prisma.driverProfile.findUnique({
+    where: { userId },
+  });
+  if (!driver) throw new ForbiddenException('Driver profile not found');
+
+  const booking = await this.prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { ride: true },
+  });
+
+  if (!booking) throw new NotFoundException('Booking not found');
+
+  if (booking.ride.driverId !== driver.id) {
+    throw new ForbiddenException('This booking is not for your ride');
+  }
+
+  if (booking.status !== 'pending') {
+    throw new BadRequestException(
+      `Cannot reject a booking with status: ${booking.status}`,
+    );
+  }
+
+  // Reject and restore seats
+  await this.prisma.$transaction(async (tx) => {
+    await tx.booking.update({
       where: { id: bookingId },
       data: {
-        status: 'confirmed' as any,
-        confirmedAt: new Date(),
-      },
-      include: {
-        passenger: {
-          select: {
-            fullName: true,
-            phoneNumber: true,
-          },
-        },
+        status: 'rejected' as any,
+        cancellationReason: dto.reason ?? 'Rejected by driver',
+        cancelledAt: new Date(),
       },
     });
 
-    return {
-      message: 'Booking accepted successfully',
-      booking: updated,
-    };
-  }
-
-  // ── PATCH /bookings/:id/reject ───────────────────────────────
-  async reject(
-    userId: string,
-    bookingId: string,
-    dto: RejectBookingDto,
-  ) {
-    const driver = await this.prisma.driverProfile.findUnique({
-      where: { userId },
-    });
-    if (!driver) throw new ForbiddenException('Driver profile not found');
-
-    const booking = await this.prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: { ride: true },
-    });
-
-    if (!booking) throw new NotFoundException('Booking not found');
-
-    if (booking.ride.driverId !== driver.id) {
-      throw new ForbiddenException('This booking is not for your ride');
-    }
-
-    if (booking.status !== 'pending') {
-      throw new BadRequestException(
-        `Cannot reject a booking with status: ${booking.status}`,
-      );
-    }
-
-    // Reject and restore seats
-    await this.prisma.$transaction(async (tx) => {
-      await tx.booking.update({
-        where: { id: bookingId },
-        data: {
-          status: 'rejected' as any,
-          cancellationReason: dto.reason ?? 'Rejected by driver',
-          cancelledAt: new Date(),
+    await tx.ride.update({
+      where: { id: booking.rideId },
+      data: {
+        availableSeats: {
+          increment: booking.seatsBooked,
         },
-      });
-
-      await tx.ride.update({
-        where: { id: booking.rideId },
-        data: {
-          availableSeats: {
-            increment: booking.seatsBooked,
-          },
-        },
-      });
+      },
     });
+  });
 
-    return { message: 'Booking rejected' };
-  }
+  // Notify passenger their booking was rejected
+  await this.notifications.createNotification(
+    booking.passengerId,
+    'booking_rejected',
+    'Booking Rejected',
+    'Your booking request was not accepted. You can search for another ride.',
+    { bookingId },
+  );
+
+  return {
+    message: 'Booking rejected',
+  };
 }
+
+}
+
