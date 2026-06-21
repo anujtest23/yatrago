@@ -10,6 +10,7 @@ import { TripsModule } from './modules/trips/trips.module';
 import { SearchModule } from './modules/search/search.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
@@ -25,6 +26,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     SearchModule,
     BookingsModule,
     PaymentsModule,
+    ReviewsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
