@@ -27,7 +27,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getResponse()
         : 'Internal server error';
 
-    this.logger.error(`${request.method} ${request.url} → ${status}`);
+    // Log the FULL error including stack trace
+    this.logger.error(
+      `${request.method} ${request.url} → ${status}`,
+      exception instanceof Error ? exception.stack : String(exception),
+    );
 
     response.status(status).json({
       success: false,
