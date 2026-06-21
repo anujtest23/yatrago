@@ -19,17 +19,20 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+
 import { UpdateUserDto } from './dto/update-user.dto';
+import { SwitchModeDto } from './dto/switch-mode.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('users')
 export class UsersController {
-  constructor(private usersService: UsersService) {}
+  constructor(private readonly usersService: UsersService) {}
 
   @Get('me')
   @ApiOperation({ summary: 'Get current user profile' })
@@ -38,7 +41,9 @@ export class UsersController {
   }
 
   @Patch('me')
-  @ApiOperation({ summary: 'Update name, gender, date of birth, language' })
+  @ApiOperation({
+    summary: 'Update name, gender, date of birth, language',
+  })
   updateMe(@CurrentUser() user: any, @Body() dto: UpdateUserDto) {
     return this.usersService.updateMe(user.id, dto);
   }
@@ -50,7 +55,10 @@ export class UsersController {
     schema: {
       type: 'object',
       properties: {
-        file: { type: 'string', format: 'binary' },
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
       },
     },
   })
@@ -59,11 +67,15 @@ export class UsersController {
       storage: diskStorage({
         destination: './uploads',
         filename: (req, file, cb) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const uniqueSuffix =
+            Date.now() + '-' + Math.round(Math.random() * 1e9);
+
           cb(null, uniqueSuffix + extname(file.originalname));
         },
       }),
-      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+      },
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
           cb(new Error('Only image files are allowed'), false);
@@ -73,29 +85,36 @@ export class UsersController {
       },
     }),
   )
-  uploadPhoto(@CurrentUser() user: any, @UploadedFile() file: Express.Multer.File) {
+  uploadPhoto(
+    @CurrentUser() user: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
     return this.usersService.updateProfilePhoto(user.id, file);
   }
 
-@Patch('me/mode')
-  @ApiOperation({ summary: 'Switch between passenger and driver mode' })
+  @Patch('me/mode')
+  @ApiOperation({
+    summary: 'Switch between passenger and driver mode',
+  })
   @ApiBody({
     schema: {
       type: 'object',
       properties: {
-        mode: { type: 'string', enum: ['passenger', 'driver'] },
+        mode: {
+          type: 'string',
+          enum: ['passenger', 'driver'],
+        },
       },
     },
   })
   switchMode(@CurrentUser() user: any, @Body() dto: SwitchModeDto) {
     return this.usersService.switchMode(user.id, dto.mode);
   }
-  switchMode(@CurrentUser() user: any, @Body() dto: SwitchModeDto) {
-    return this.usersService.switchMode(user.id, dto.mode);
-  }
 
   @Delete('me')
-  @ApiOperation({ summary: 'Deactivate account (soft delete)' })
+  @ApiOperation({
+    summary: 'Deactivate account (soft delete)',
+  })
   deleteMe(@CurrentUser() user: any) {
     return this.usersService.deleteMe(user.id);
   }
