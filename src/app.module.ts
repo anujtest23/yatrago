@@ -6,6 +6,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
+import { TripsModule } from './modules/trips/trips.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
@@ -17,6 +18,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     UsersModule,
     DriversModule,
     VehiclesModule,
+    TripsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
