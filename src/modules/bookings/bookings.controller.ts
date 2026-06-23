@@ -21,7 +21,7 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { RejectBookingDto } from './dto/reject-booking.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-
+import { SendMessageDto } from './dto/send-message.dto';
 @ApiTags('Bookings')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -78,6 +78,21 @@ export class BookingsController {
   @ApiParam({ name: 'id', description: 'Booking ID' })
   accept(@CurrentUser() user: any, @Param('id') id: string) {
     return this.bookingsService.accept(user.id, id);
+  }
+  @Post('messages')
+  @ApiOperation({ summary: 'Send a message to driver or passenger in a booking' })
+  sendMessage(@CurrentUser() user: any, @Body() dto: SendMessageDto) {
+    return this.bookingsService.sendMessage(user.id, dto);
+  }
+
+  @Get('messages/:bookingId')
+  @ApiOperation({ summary: 'Get all messages for a booking' })
+  @ApiParam({ name: 'bookingId', description: 'Booking ID' })
+  getMessages(
+    @CurrentUser() user: any,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.getMessages(user.id, bookingId);
   }
 
   @Patch(':id/reject')

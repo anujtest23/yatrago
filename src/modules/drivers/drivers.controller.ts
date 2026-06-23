@@ -7,7 +7,9 @@ import {
   UseInterceptors,
   UploadedFile,
   Query,
+  Param,
 } from '@nestjs/common';
+
 import {
   ApiTags,
   ApiOperation,
@@ -15,7 +17,9 @@ import {
   ApiConsumes,
   ApiBody,
   ApiQuery,
+  ApiParam,
 } from '@nestjs/swagger';
+
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DriversService } from './drivers.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -89,10 +93,21 @@ export class DriversController {
   ) {
     return this.driversService.uploadSelfie(user.id, file);
   }
+@Get('dashboard')
+  @ApiOperation({ summary: 'Driver dashboard — earnings, trips, pending requests' })
+  getDashboard(@CurrentUser() user: any) {
+    return this.driversService.getDashboard(user.id);
+  }
 
   @Get('status')
   @ApiOperation({ summary: 'Get driver verification status and document checklist' })
   getStatus(@CurrentUser() user: any) {
     return this.driversService.getStatus(user.id);
+  }
+  @Get(':userId/profile')
+  @ApiOperation({ summary: 'Get public driver profile — visible to passengers' })
+  @ApiParam({ name: 'userId', description: 'User ID of the driver' })
+  getPublicProfile(@Param('userId') userId: string) {
+    return this.driversService.getPublicProfile(userId);
   }
 }

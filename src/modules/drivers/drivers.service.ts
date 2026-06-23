@@ -259,4 +259,195 @@ export class DriversService {
       });
     }
   }
+  // ── GET /drivers/dashboard ───────────────────────────────────
+  async getDashboard(userId: string) {
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!driver) {
+      return {
+        verificationStatus: 'not_submitted',
+        message: 'Complete driver verification to access dashboard',
+      };
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const [
+      upcomingTrips,
+      pendingBookings,
+      todayEarnings,
+      totalEarnings,
+      recentActivity,
+    ] = await Promise.all([
+      // Upcoming published trips
+      this.prisma.ride.findMany({
+        where: {
+          driverId: driver.id,
+          status: 'published',
+          departureAt: { gte: new Date() },
+        },
+        orderBy: { departureAt: 'asc' },
+        take: 5,
+        select: {
+          id: true,
+          originName: true,
+          destName: true,
+          departureAt: true,
+          availableSeats: true,
+          totalSeats: true,
+          pricePerSeat: true,
+          _count: { select: { bookings: true } },
+        },
+      }),
+
+      // Pending booking requests
+      this.prisma.booking.count({
+        where: {
+          ride: { driverId: driver.id },
+          status: 'pending',
+        },
+      }),
+
+      // Today's earnings
+      this.prisma.booking.aggregate({
+        where: {
+          ride: { driverId: driver.id },
+          paymentStatus: 'paid',
+          confirmedAt: { gte: today, lt: tomorrow },
+        },
+        _sum: { totalAmount: true },
+      }),
+
+      // Total lifetime earnings
+      this.prisma.booking.aggregate({
+        where: {
+          ride: { driverId: driver.id },
+          paymentStatus: 'paid',
+        },
+        _sum: { totalAmount: true },
+      }),
+
+      // Recent 5 bookings
+      this.prisma.booking.findMany({
+        where: { ride: { driverId: driver.id } },
+        orderBy: { bookedAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          status: true,
+          totalAmount: true,
+          bookedAt: true,
+          passenger: {
+            select: {
+              fullName: true,
+              profilePhotoUrl: true,
+            },
+          },
+          ride: {
+            select: {
+              originName: true,
+              destName: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      driver: {
+        verificationStatus: driver.verificationStatus,
+        averageRating: driver.averageRating,
+        totalTrips: driver.totalTrips,
+        acceptanceRate: driver.acceptanceRate,
+        completionRate: driver.completionRate,
+      },
+      earnings: {
+        today: todayEarnings._sum.totalAmount ?? 0,
+        lifetime: totalEarnings._sum.totalAmount ?? 0,
+      },
+      pendingBookingRequests: pendingBookings,
+      upcomingTrips,
+      recentActivity,
+    };
+  }
+  // ── GET /drivers/:userId/profile ─────────────────────────────
+  async getPublicProfile(userId: string) {
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        averageRating: true,
+        totalTrips: true,
+        acceptanceRate: true,
+        completionRate: true,
+        verificationStatus: true,
+        createdAt: true,
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            profilePhotoUrl: true,
+          },
+        },
+        vehicles: {
+          where: { isActive: true },
+          select: {
+            make: true,
+            model: true,
+            color: true,
+            vehicleType: true,
+            totalSeats: true,
+          },
+        },
+      },
+    });
+
+    if (!driver) {
+      throw new NotFoundException('Driver profile not found');
+    }
+
+    if (driver.verificationStatus !== 'approved') {
+      throw new NotFoundException('Driver profile not found');
+    }
+
+    // Get their reviews
+    const reviews = await this.prisma.rating.findMany({
+      where: {
+        rateeId: userId,
+        rateeType: 'driver',
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: {
+        score: true,
+        reviewText: true,
+        createdAt: true,
+        rater: {
+          select: {
+            fullName: true,
+            profilePhotoUrl: true,
+          },
+        },
+      },
+    });
+
+    return {
+      id: driver.id,
+      fullName: driver.user.fullName,
+      profilePhotoUrl: driver.user.profilePhotoUrl,
+      averageRating: driver.averageRating,
+      totalTrips: driver.totalTrips,
+      acceptanceRate: driver.acceptanceRate,
+      completionRate: driver.completionRate,
+      memberSince: driver.createdAt,
+      vehicles: driver.vehicles,
+      recentReviews: reviews,
+      totalReviews: reviews.length,
+    };
+  }
 }

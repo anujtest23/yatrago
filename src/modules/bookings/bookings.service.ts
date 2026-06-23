@@ -12,6 +12,7 @@ import { RejectBookingDto } from './dto/reject-booking.dto';
 
 import { NotificationsService } from '../notifications/notifications.service';
 
+import { SendMessageDto } from './dto/send-message.dto';
 @Injectable()
 export class BookingsService {
   constructor(
@@ -439,6 +440,105 @@ async reject(
     message: 'Booking rejected',
   };
 }
+// ── POST /messages ───────────────────────────────────────────
+  async sendMessage(userId: string, dto: SendMessageDto) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: dto.bookingId },
+      include: {
+        ride: {
+          include: { driver: true },
+        },
+      },
+    });
+
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    // Verify sender is part of this booking
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
+
+    const isPassenger = booking.passengerId === userId;
+    const isDriver = driver && booking.ride.driverId === driver.id;
+
+    if (!isPassenger && !isDriver) {
+      throw new ForbiddenException('You are not part of this booking');
+    }
+
+    // Receiver is the other party
+    const receiverId = isPassenger ? booking.ride.driver.userId : booking.passengerId;
+
+    const message = await this.prisma.message.create({
+      data: {
+        bookingId: dto.bookingId,
+        senderId: userId,
+        receiverId,
+        content: dto.content,
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            fullName: true,
+            profilePhotoUrl: true,
+          },
+        },
+      },
+    });
+
+    return { message: 'Message sent', data: message };
+  }
+
+  // ── GET /messages/:bookingId ─────────────────────────────────
+  async getMessages(userId: string, bookingId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        ride: {
+          include: { driver: true },
+        },
+      },
+    });
+
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
+
+    const isPassenger = booking.passengerId === userId;
+    const isDriver = driver && booking.ride.driverId === driver.id;
+
+    if (!isPassenger && !isDriver) {
+      throw new ForbiddenException('You are not part of this booking');
+    }
+
+    const messages = await this.prisma.message.findMany({
+      where: { bookingId },
+      orderBy: { sentAt: 'asc' },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            fullName: true,
+            profilePhotoUrl: true,
+          },
+        },
+      },
+    });
+
+    // Mark all received messages as read
+    await this.prisma.message.updateMany({
+      where: {
+        bookingId,
+        receiverId: userId,
+        isRead: false,
+      },
+      data: { isRead: true },
+    });
+
+    return { messages, total: messages.length };
+  }
 
 }
 
