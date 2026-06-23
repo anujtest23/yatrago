@@ -146,6 +146,8 @@ export class VehiclesService {
 
     return { message: 'Vehicle removed successfully' };
   }
+
+  // ── POST /vehicles/:id/documents ────────────────────────────
 async uploadDocument(
     userId: string,
     vehicleId: string,

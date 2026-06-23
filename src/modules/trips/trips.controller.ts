@@ -63,19 +63,6 @@ export class TripsController {
   ) {
     return this.tripsService.update(user.id, id, dto);
   }
-  @Patch(':id/start')
-  @ApiOperation({ summary: 'Driver starts the trip — sets status to in_progress' })
-  @ApiParam({ name: 'id', description: 'Trip ID' })
-  startTrip(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.tripsService.startTrip(user.id, id);
-  }
-
-  @Patch(':id/complete')
-  @ApiOperation({ summary: 'Driver completes the trip — sets all bookings to completed' })
-  @ApiParam({ name: 'id', description: 'Trip ID' })
-  completeTrip(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.tripsService.completeTrip(user.id, id);
-  }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Cancel a trip' })

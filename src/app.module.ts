@@ -7,12 +7,6 @@ import { UsersModule } from './modules/users/users.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
 import { TripsModule } from './modules/trips/trips.module';
-import { SearchModule } from './modules/search/search.module';
-import { BookingsModule } from './modules/bookings/bookings.module';
-import { PaymentsModule } from './modules/payments/payments.module';
-import { ReviewsModule } from './modules/reviews/reviews.module';
-import { NotificationsModule } from './modules/notifications/notifications.module';
-import { AdminModule } from './modules/admin/admin.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
@@ -25,12 +19,6 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     DriversModule,
     VehiclesModule,
     TripsModule,
-    SearchModule,
-    BookingsModule,
-    PaymentsModule,
-    ReviewsModule,
-    NotificationsModule,
-    AdminModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
