@@ -10,9 +10,13 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { RejectBookingDto } from './dto/reject-booking.dto';
 
+import { NotificationsService } from '../notifications/notifications.service';
 @Injectable()
 export class BookingsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   // ── POST /bookings ───────────────────────────────────────────
   async create(userId: string, dto: CreateBookingDto) {
@@ -355,6 +359,14 @@ export class BookingsService {
         },
       },
     });
+    // Notify passenger their booking was accepted
+    await this.notifications.createNotification(
+      booking.passengerId,
+      'booking_confirmed',
+      'Booking Confirmed!',
+      `Your booking has been accepted by the driver.`,
+      { bookingId },
+    );
 
     return {
       message: 'Booking accepted successfully',
@@ -410,6 +422,14 @@ export class BookingsService {
         },
       });
     });
+    // Notify passenger their booking was rejected
+    await this.notifications.createNotification(
+      booking.passengerId,
+      'booking_rejected',
+      'Booking Rejected',
+      `Your booking request was not accepted. You can search for another ride.`,
+      { bookingId },
+    );
 
     return { message: 'Booking rejected' };
   }
