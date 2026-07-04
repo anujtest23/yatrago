@@ -35,6 +35,16 @@ export class ReviewsService {
       );
     }
 
+    // Rating window — only within 24 hours of trip completion
+    if (booking.completedAt) {
+      const windowMs = 24 * 60 * 60 * 1000;
+      if (Date.now() - booking.completedAt.getTime() > windowMs) {
+        throw new BadRequestException(
+          'Rating window has closed (24 hours after trip completion)',
+        );
+      }
+    }
+
     // Verify the reviewer is part of this booking
     const driver = await this.prisma.driverProfile.findUnique({
       where: { userId },
@@ -85,6 +95,7 @@ export class ReviewsService {
         rateeType: dto.rateeType as any,
         score: dto.score,
         reviewText: dto.reviewText,
+        tags: dto.tags ?? [],
       },
     });
 
@@ -100,7 +111,7 @@ export class ReviewsService {
   // ── GET /reviews/user/:id ────────────────────────────────────
   async getUserReviews(userId: string) {
     const reviews = await this.prisma.rating.findMany({
-      where: { rateeId: userId },
+      where: { rateeId: userId, isHidden: false },
       include: {
         rater: {
           select: {
@@ -151,8 +162,9 @@ export class ReviewsService {
     rateeId: string,
     rateeType: string,
   ): Promise<void> {
+    // Hidden (moderated) ratings never count toward the average
     const allRatings = await this.prisma.rating.findMany({
-      where: { rateeId },
+      where: { rateeId, isHidden: false },
       select: { score: true },
     });
 

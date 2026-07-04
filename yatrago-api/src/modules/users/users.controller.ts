@@ -26,6 +26,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SwitchModeDto } from './dto/switch-mode.dto';
+import { RegisterDeviceTokenDto } from './dto/register-device-token.dto';
+import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -111,9 +113,40 @@ export class UsersController {
     return this.usersService.switchMode(user.id, dto.mode);
   }
 
+  @Post('me/device-token')
+  @ApiOperation({
+    summary: 'Register or refresh an FCM device token for push notifications',
+  })
+  registerDeviceToken(
+    @CurrentUser() user: any,
+    @Body() dto: RegisterDeviceTokenDto,
+  ) {
+    return this.usersService.registerDeviceToken(user.id, dto);
+  }
+
+  @Get('me/notification-settings')
+  @ApiOperation({
+    summary: 'Get notification preferences (merged over defaults)',
+  })
+  getNotificationSettings(@CurrentUser() user: any) {
+    return this.usersService.getNotificationSettings(user.id);
+  }
+
+  @Patch('me/notification-settings')
+  @ApiOperation({
+    summary: 'Update notification preferences (partial)',
+  })
+  updateNotificationSettings(
+    @CurrentUser() user: any,
+    @Body() dto: UpdateNotificationSettingsDto,
+  ) {
+    return this.usersService.updateNotificationSettings(user.id, dto);
+  }
+
   @Delete('me')
   @ApiOperation({
-    summary: 'Deactivate account (soft delete)',
+    summary:
+      'Request account deletion (soft delete with 30-day grace period)',
   })
   deleteMe(@CurrentUser() user: any) {
     return this.usersService.deleteMe(user.id);

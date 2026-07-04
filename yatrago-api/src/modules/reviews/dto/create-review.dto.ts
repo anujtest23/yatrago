@@ -3,6 +3,8 @@ import {
   IsInt,
   IsOptional,
   IsEnum,
+  IsArray,
+  ArrayMaxSize,
   Min,
   Max,
   MaxLength,
@@ -38,4 +40,15 @@ export class CreateReviewDto {
   @IsString()
   @MaxLength(500)
   reviewText?: string;
+
+  @ApiPropertyOptional({
+    example: ['punctual', 'friendly'],
+    description: 'Quick-select feedback tags (max 5, each max 30 chars)',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsString({ each: true })
+  @MaxLength(30, { each: true })
+  tags?: string[];
 }

@@ -38,9 +38,16 @@ export class AuthController {
     return this.authService.verifyOtp(dto);
   }
 
+  @Post('refresh')
+  @ApiOperation({ summary: 'Exchange a refresh token for new tokens' })
+  @ApiResponse({ status: 201, description: 'Returns new access and refresh tokens' })
+  refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refresh(dto.refreshToken);
+  }
+
+  // No JwtAuthGuard: possession of the refresh token is sufficient to revoke
+  // it, and logout must still work after the access token has expired.
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Logout and invalidate refresh token' })
   logout(@Body() dto: RefreshTokenDto) {
     return this.authService.logout(dto.refreshToken);

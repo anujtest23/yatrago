@@ -70,4 +70,23 @@ export class TripsController {
   remove(@CurrentUser() user: any, @Param('id') id: string) {
     return this.tripsService.remove(user.id, id);
   }
+  @Get(':id/location')
+  @UseGuards(JwtAuthGuard)
+  async getDriverLocation(@Param('id') tripId: string) {
+    return this.tripsService.getDriverLocation(tripId);
+  }
+
+  @Patch(':id/start')
+  @ApiOperation({ summary: 'Driver starts a trip once passengers are confirmed' })
+  @ApiParam({ name: 'id', description: 'Trip ID' })
+  startTrip(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.tripsService.startTrip(user.id, id);
+  }
+
+  @Patch(':id/complete')
+  @ApiOperation({ summary: 'Driver marks a trip as completed' })
+  @ApiParam({ name: 'id', description: 'Trip ID' })
+  completeTrip(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.tripsService.completeTrip(user.id, id);
+  }
 }

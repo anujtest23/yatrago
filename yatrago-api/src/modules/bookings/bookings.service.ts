@@ -6,21 +6,41 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { AppConfigService } from '../platform/app-config.service';
+import { WalletService } from '../platform/wallet.service';
+import { SmsService } from '../platform/sms.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { RejectBookingDto } from './dto/reject-booking.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 
 import { NotificationsService } from '../notifications/notifications.service';
+import { renderTemplate } from '../notifications/notification-templates';
+import { mergeNotificationSettings } from '../notifications/notification-preferences';
 @Injectable()
 export class BookingsService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private appConfig: AppConfigService,
+    private wallet: WalletService,
+    private sms: SmsService,
   ) {}
 
   // ── POST /bookings ───────────────────────────────────────────
-  async create(userId: string, dto: CreateBookingDto) {
+  async create(userId: string, dto: CreateBookingDto, idempotencyKey?: string) {
+    // Idempotent replay: same key returns the original response
+    if (idempotencyKey) {
+      const existing = await this.prisma.idempotencyKey.findUnique({
+        where: { key: idempotencyKey },
+      });
+      if (existing) {
+        if (existing.userId !== userId) {
+          throw new ForbiddenException('Idempotency key belongs to another user');
+        }
+        return existing.response as any;
+      }
+    }
     // Get the ride
     const ride = await this.prisma.ride.findUnique({
       where: { id: dto.rideId },
@@ -47,7 +67,8 @@ export class BookingsService {
       throw new BadRequestException('This ride has already departed');
     }
 
-    // Check enough seats
+    // Early seat check for a friendly error; the authoritative check is
+    // the conditional decrement inside the transaction below.
     if (ride.availableSeats < dto.seatsBooked) {
       throw new BadRequestException(
         `Only ${ride.availableSeats} seat(s) available`,
@@ -77,75 +98,81 @@ export class BookingsService {
       }
     }
 
-    // Calculate total amount
+    // Calculate total amount (fare the passenger pays the driver directly)
     const totalAmount = ride.pricePerSeat * dto.seatsBooked;
 
-    // For cash payment — confirm immediately
-    // For esewa/khalti — stay pending until payment verified
-    const bookingStatus =
-      dto.paymentMethod === 'cash' ? 'confirmed' : 'pending';
-    const paymentStatus =
-      dto.paymentMethod === 'cash' ? 'paid' : 'pending';
-
-    // Create booking in a transaction
-    const booking = await this.prisma.$transaction(async (tx) => {
-      const newBooking = await tx.booking.create({
-        data: {
-          rideId: dto.rideId,
-          passengerId: userId,
-          seatsBooked: dto.seatsBooked,
-          totalAmount,
-          status: bookingStatus as any,
-          paymentStatus: paymentStatus as any,
-          couponCode: dto.couponCode,
-          confirmedAt: bookingStatus === 'confirmed' ? new Date() : null,
-        },
-        include: {
-          ride: {
-            include: {
-              driver: {
-                include: {
-                  user: {
-                    select: {
-                      fullName: true,
-                      phoneNumber: true,
-                    },
+    // Every booking starts as a request — the driver must accept it.
+    // Seats are NOT reserved here; they decrement only on accept.
+    const booking = await this.prisma.booking.create({
+      data: {
+        rideId: dto.rideId,
+        passengerId: userId,
+        seatsBooked: dto.seatsBooked,
+        totalAmount,
+        status: 'pending',
+        pickupLat: dto.pickupLat,
+        pickupLng: dto.pickupLng,
+        pickupName: dto.pickupName,
+        dropLat: dto.dropLat,
+        dropLng: dto.dropLng,
+        dropName: dto.dropName,
+        couponCode: dto.couponCode,
+      },
+      include: {
+        ride: {
+          include: {
+            driver: {
+              include: {
+                user: {
+                  select: {
+                    fullName: true,
+                    phoneNumber: true,
                   },
                 },
               },
-              vehicle: {
-                select: {
-                  make: true,
-                  model: true,
-                  color: true,
-                },
-              },
-              stops: { orderBy: { stopOrder: 'asc' } },
             },
+            vehicle: {
+              select: {
+                make: true,
+                model: true,
+                color: true,
+              },
+            },
+            stops: { orderBy: { stopOrder: 'asc' } },
           },
         },
-      });
-
-      // Reduce available seats
-      await tx.ride.update({
-        where: { id: dto.rideId },
-        data: {
-          availableSeats: {
-            decrement: dto.seatsBooked,
-          },
-        },
-      });
-
-      return newBooking;
+      },
     });
 
-    return {
-      message:
-        dto.paymentMethod === 'cash'
-          ? 'Booking confirmed. Pay cash to the driver.'
-          : 'Booking created. Complete payment to confirm.',
+    // Notify the driver of the new booking request
+    await this.notifications.createNotification(
+      ride.driver.userId,
+      'booking_requested',
+      'New Booking Request',
+      `You have a new booking request for your ride from ${ride.originName} to ${ride.destName}. Review and accept or reject it.`,
+      { bookingId: booking.id, rideId: ride.id },
+    );
+
+    const response = {
+      message: 'Booking request submitted. Waiting for the driver to accept.',
       booking,
     };
+
+    // Persist idempotency record so a retried request replays this response
+    if (idempotencyKey) {
+      await this.prisma.idempotencyKey
+        .create({
+          data: {
+            key: idempotencyKey,
+            userId,
+            endpoint: 'POST /bookings',
+            response: JSON.parse(JSON.stringify(response)),
+          },
+        })
+        .catch(() => undefined); // concurrent duplicate key — response already stored
+    }
+
+    return response;
   }
 
   // ── GET /bookings ────────────────────────────────────────────
@@ -257,7 +284,6 @@ export class BookingsService {
             phoneNumber: true,
           },
         },
-        payments: true,
       },
     });
 
@@ -275,7 +301,25 @@ export class BookingsService {
       throw new ForbiddenException('You do not have access to this booking');
     }
 
-    return booking;
+    // Aggregate the passenger's rating (as a ratee) so the driver can judge
+    // the request. Hidden ratings are excluded from the average.
+    const ratingAgg = await this.prisma.rating.aggregate({
+      where: {
+        rateeId: booking.passengerId,
+        rateeType: 'passenger',
+        isHidden: false,
+      },
+      _avg: { score: true },
+      _count: { score: true },
+    });
+
+    return {
+      ...booking,
+      passengerRating: {
+        average: ratingAgg._avg.score ?? 0,
+        count: ratingAgg._count.score,
+      },
+    };
   }
 
   // ── PATCH /bookings/:id/cancel ───────────────────────────────
@@ -296,7 +340,9 @@ export class BookingsService {
       );
     }
 
-    // Cancel booking and restore seats in a transaction
+    // Only a confirmed booking holds reserved seats; a pending request does not.
+    const wasConfirmed = booking.status === 'confirmed';
+
     await this.prisma.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: bookingId },
@@ -307,18 +353,19 @@ export class BookingsService {
         },
       });
 
-      // Restore available seats on the ride
-      await tx.ride.update({
-        where: { id: booking.rideId },
-        data: {
-          availableSeats: {
-            increment: booking.seatsBooked,
+      if (wasConfirmed) {
+        await tx.ride.update({
+          where: { id: booking.rideId },
+          data: {
+            availableSeats: { increment: booking.seatsBooked },
           },
-        },
-      });
+        });
+      }
     });
 
-    return { message: 'Booking cancelled successfully' };
+    return {
+      message: 'Booking cancelled successfully',
+    };
   }
 
   // ── PATCH /bookings/:id/accept ───────────────────────────────
@@ -345,21 +392,46 @@ export class BookingsService {
       );
     }
 
-    const updated = await this.prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        status: 'confirmed' as any,
-        confirmedAt: new Date(),
-      },
-      include: {
-        passenger: {
-          select: {
-            fullName: true,
-            phoneNumber: true,
-          },
+    // Driver must hold the minimum wallet balance to accept requests.
+    const minBalance = await this.appConfig.get('min_wallet_balance');
+    await this.wallet.assertMinBalance(userId, minBalance);
+
+    // Reserve seats now (only accepted bookings hold seats). Atomic
+    // conditional decrement prevents overbooking across concurrent accepts.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const seatLock = await tx.ride.updateMany({
+        where: {
+          id: booking.rideId,
+          availableSeats: { gte: booking.seatsBooked },
         },
-      },
+        data: { availableSeats: { decrement: booking.seatsBooked } },
+      });
+
+      if (seatLock.count === 0) {
+        throw new ConflictException(
+          'Not enough seats remaining to accept this request.',
+        );
+      }
+
+      return tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: 'confirmed' as any,
+          confirmedAt: new Date(),
+        },
+        include: {
+          passenger: {
+            select: {
+              fullName: true,
+              phoneNumber: true,
+              notificationSettings: true,
+            },
+          },
+          ride: { select: { availableSeats: true } },
+        },
+      });
     });
+
     // Notify passenger their booking was accepted
     await this.notifications.createNotification(
       booking.passengerId,
@@ -369,10 +441,63 @@ export class BookingsService {
       { bookingId },
     );
 
+    // SMS fallback for this critical event (skipped if bookings muted)
+    if (
+      mergeNotificationSettings(updated.passenger.notificationSettings).bookings
+    ) {
+      const sms = renderTemplate('booking_accepted', {
+        origin: booking.ride.originName,
+        dest: booking.ride.destName,
+      });
+      this.sms
+        .send(updated.passenger.phoneNumber, sms.body)
+        .catch(() => undefined);
+    }
+
+    // Seats now full → auto-reject every remaining pending request.
+    if (updated.ride.availableSeats <= 0) {
+      await this.autoRejectRemaining(booking.rideId, bookingId);
+    }
+
     return {
       message: 'Booking accepted successfully',
       booking: updated,
     };
+  }
+
+  // Reject all still-pending requests for a ride once its seats are full.
+  private async autoRejectRemaining(rideId: string, exceptBookingId: string) {
+    const stillPending = await this.prisma.booking.findMany({
+      where: {
+        rideId,
+        status: 'pending',
+        id: { not: exceptBookingId },
+      },
+      select: { id: true, passengerId: true },
+    });
+
+    if (stillPending.length === 0) return;
+
+    await this.prisma.booking.updateMany({
+      where: { id: { in: stillPending.map((b) => b.id) } },
+      data: {
+        status: 'rejected' as any,
+        cancellationReason: 'Ride is now full',
+        cancelledAt: new Date(),
+      },
+    });
+
+    await Promise.all(
+      stillPending.map((b) =>
+        this.notifications.createNotification(
+          b.passengerId,
+          'booking_rejected',
+          'Booking Rejected',
+          'The ride is now full. Your request could not be accepted. You can search for another ride.',
+          { bookingId: b.id },
+        ),
+      ),
+    );
   }
 
   // ── PATCH /bookings/:id/reject ───────────────────────────────
@@ -403,26 +528,17 @@ export class BookingsService {
       );
     }
 
-    // Reject and restore seats
-    await this.prisma.$transaction(async (tx) => {
-      await tx.booking.update({
-        where: { id: bookingId },
-        data: {
-          status: 'rejected' as any,
-          cancellationReason: dto.reason ?? 'Rejected by driver',
-          cancelledAt: new Date(),
-        },
-      });
-
-      await tx.ride.update({
-        where: { id: booking.rideId },
-        data: {
-          availableSeats: {
-            increment: booking.seatsBooked,
-          },
-        },
-      });
+    // Pending requests never reserve a seat, so nothing to restore.
+    // Passengers pay drivers directly (off-app), so there is no refund.
+    await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: 'rejected' as any,
+        cancellationReason: dto.reason ?? 'Rejected by driver',
+        cancelledAt: new Date(),
+      },
     });
+
     // Notify passenger their booking was rejected
     await this.notifications.createNotification(
       booking.passengerId,

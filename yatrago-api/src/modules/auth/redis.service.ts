@@ -34,6 +34,36 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.client.del(`otp:${phone}`);
   }
 
+  // Count an OTP send for this phone; returns the count within the
+  // rolling 10-minute window. Caller rejects when count exceeds limit.
+  async incrementOtpSendCount(phone: string): Promise<number> {
+    const key = `otp_sends:${phone}`;
+    const count = await this.client.incr(key);
+    if (count === 1) {
+      await this.client.expire(key, 600);
+    }
+    return count;
+  }
+
+  // Count a failed OTP verification; window 10 minutes.
+  async incrementOtpFailCount(phone: string): Promise<number> {
+    const key = `otp_fails:${phone}`;
+    const count = await this.client.incr(key);
+    if (count === 1) {
+      await this.client.expire(key, 600);
+    }
+    return count;
+  }
+
+  async getOtpFailCount(phone: string): Promise<number> {
+    const val = await this.client.get(`otp_fails:${phone}`);
+    return val ? parseInt(val, 10) : 0;
+  }
+
+  async clearOtpFailCount(phone: string): Promise<void> {
+    await this.client.del(`otp_fails:${phone}`);
+  }
+
   // Block a refresh token on logout
   async blacklistToken(token: string, ttlSeconds: number): Promise<void> {
     await this.client.set(`blacklist:${token}`, '1', 'EX', ttlSeconds);

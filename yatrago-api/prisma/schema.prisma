@@ -14,6 +14,12 @@ enum UserMode {
   driver
 }
 
+enum UserRole {
+  user
+  admin
+  super_admin
+}
+
 enum Gender {
   male
   female
@@ -75,6 +81,7 @@ enum BookingStatus {
   rejected
   cancelled
   completed
+  expired
 }
 
 enum PaymentStatus {
@@ -98,12 +105,31 @@ enum RateeType {
 enum NotifType {
   booking_confirmed
   booking_rejected
+  booking_requested
+  booking_expired
   ride_reminder
   trip_started
   trip_completed
   payment_received
+  refund_issued
+  payout_update
+  sos_alert
   promotion
+  wallet_low
+  commission_charged
+  wallet_topup
   system
+}
+
+enum WalletTxType {
+  credit
+  debit
+}
+
+enum SosStatus {
+  open
+  acknowledged
+  resolved
 }
 
 enum Platform {
@@ -129,8 +155,11 @@ model User {
   dateOfBirth      DateTime? @map("date_of_birth")
   language         String    @default("ne")
   activeMode       UserMode  @default(passenger) @map("active_mode")
+  role             UserRole  @default(user)
   isVerified       Boolean   @default(false) @map("is_verified")
   isActive         Boolean   @default(true) @map("is_active")
+  notificationSettings Json? @map("notification_settings")
+  deletionRequestedAt  DateTime? @map("deletion_requested_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
@@ -145,6 +174,8 @@ model User {
   ratingsGiven     Rating[]       @relation("rater")
   ratingsReceived  Rating[]       @relation("ratee")
   authSessions     AuthSession[]
+  wallet           Wallet?
+  sosAlerts        SosAlert[]
 
   @@map("users")
 }
@@ -175,13 +206,17 @@ model DriverProfile {
   verifiedAt         DateTime?          @map("verified_at")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
+  lastLat            Float?
+  lastLng            Float?
+  lastLocationAt     DateTime?
 
-  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  documents DriverDocument[]
-  vehicles  Vehicle[]
-  rides     Ride[]
-  payouts   Payout[]
-  rewards   DriverReward[]
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents   DriverDocument[]
+  vehicles    Vehicle[]
+  rides       Ride[]
+  payouts     Payout[]
+  rewards     DriverReward[]
+  commissions CommissionRecord[]
 
   @@map("driver_profiles")
 }
@@ -193,6 +228,7 @@ model DriverDocument {
   fileUrl         String     @map("file_url")
   status          DocStatus  @default(pending)
   rejectionReason String?    @map("rejection_reason")
+  expiryDate      DateTime?  @map("expiry_date")
   reviewedAt      DateTime?  @map("reviewed_at")
   createdAt       DateTime   @default(now()) @map("created_at")
 
@@ -242,9 +278,13 @@ model Ride {
   originName      String      @map("origin_name")
   originLat       Float       @map("origin_lat")
   originLng       Float       @map("origin_lng")
+  originCity      String?     @map("origin_city")
+  originState     String?     @map("origin_state")
   destName        String      @map("dest_name")
   destLat         Float       @map("dest_lat")
   destLng         Float       @map("dest_lng")
+  destCity        String?     @map("dest_city")
+  destState       String?     @map("dest_state")
   departureAt     DateTime    @map("departure_at")
   totalSeats      Int         @map("total_seats")
   availableSeats  Int         @map("available_seats")
@@ -259,10 +299,11 @@ model Ride {
   startedAt       DateTime?   @map("started_at")
   completedAt     DateTime?   @map("completed_at")
 
-  driver   DriverProfile @relation(fields: [driverId], references: [id])
-  vehicle  Vehicle       @relation(fields: [vehicleId], references: [id])
-  stops    RideStop[]
-  bookings Booking[]
+  driver      DriverProfile      @relation(fields: [driverId], references: [id])
+  vehicle     Vehicle            @relation(fields: [vehicleId], references: [id])
+  stops       RideStop[]
+  bookings    Booking[]
+  commissions CommissionRecord[]
 
   @@map("rides")
 }
@@ -290,6 +331,12 @@ model Booking {
   totalAmount        Float         @map("total_amount")
   status             BookingStatus @default(pending)
   paymentStatus      PaymentStatus @default(pending) @map("payment_status")
+  pickupLat          Float?        @map("pickup_lat")
+  pickupLng          Float?        @map("pickup_lng")
+  pickupName         String?       @map("pickup_name")
+  dropLat            Float?        @map("drop_lat")
+  dropLng            Float?        @map("drop_lng")
+  dropName           String?       @map("drop_name")
   couponCode         String?       @map("coupon_code")
   discountAmount     Float         @default(0) @map("discount_amount")
   cancellationReason String?       @map("cancellation_reason")
@@ -345,6 +392,25 @@ model Payout {
   @@map("payouts")
 }
 
+model CommissionRecord {
+  id         String   @id @default(uuid())
+  rideId     String   @map("ride_id")
+  driverId   String   @map("driver_id")
+  mode       String // "percent" | "fixed"
+  rate       Float // percent used, or 0 for fixed mode
+  grossFares Float    @map("gross_fares")
+  amount     Float
+  status     String   @default("charged") // charged | owed | waived
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  ride   Ride          @relation(fields: [rideId], references: [id])
+  driver DriverProfile @relation(fields: [driverId], references: [id])
+
+  @@index([driverId])
+  @@map("commission_records")
+}
+
 model Rating {
   id         String    @id @default(uuid())
   bookingId  String    @map("booking_id")
@@ -353,6 +419,9 @@ model Rating {
   rateeType  RateeType @map("ratee_type")
   score      Int
   reviewText String?   @map("review_text")
+  tags       String[]  @default([])
+  isHidden   Boolean   @default(false) @map("is_hidden")
+  flagReason String?   @map("flag_reason")
   createdAt  DateTime  @default(now()) @map("created_at")
 
   booking Booking @relation(fields: [bookingId], references: [id])
@@ -447,4 +516,95 @@ model DriverReward {
   driver DriverProfile @relation(fields: [driverId], references: [id])
 
   @@map("driver_rewards")
+}
+
+// ─── PLATFORM CONFIG & GOVERNANCE ────────────────────────────
+
+// Admin-tunable business policy values, stored as key/value JSON.
+// Known keys: commission_percent, price_cap_per_km, full_refund_hours,
+// half_refund_hours, min_payout_npr, booking_expiry_minutes,
+// max_departure_days, min_departure_minutes
+model AppConfig {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_config")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String   @map("actor_id")
+  action     String
+  targetType String   @map("target_type")
+  targetId   String?  @map("target_id")
+  details    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([actorId])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}
+
+// ─── WALLET ──────────────────────────────────────────────────
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  balance   Float    @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id        String       @id @default(uuid())
+  walletId  String       @map("wallet_id")
+  type      WalletTxType
+  amount    Float
+  source    String // e.g. refund, topup, payout, adjustment
+  reference String? // bookingId / paymentId / payoutId
+  note      String?
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@map("wallet_transactions")
+}
+
+// ─── IDEMPOTENCY ─────────────────────────────────────────────
+
+model IdempotencyKey {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  userId    String   @map("user_id")
+  endpoint  String
+  response  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("idempotency_keys")
+}
+
+// ─── SOS / SAFETY ────────────────────────────────────────────
+
+model SosAlert {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  bookingId  String?   @map("booking_id")
+  lat        Float
+  lng        Float
+  note       String?
+  status     SosStatus @default(open)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  resolvedAt DateTime? @map("resolved_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("sos_alerts")
 }

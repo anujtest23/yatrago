@@ -6,12 +6,14 @@ import {
   Body,
   Param,
   Query,
+  Headers,
   UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
+  ApiHeader,
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
@@ -31,8 +33,17 @@ export class BookingsController {
 
   @Post()
   @ApiOperation({ summary: 'Passenger books a seat on a ride' })
-  create(@CurrentUser() user: any, @Body() dto: CreateBookingDto) {
-    return this.bookingsService.create(user.id, dto);
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: 'Unique key to safely retry booking creation',
+  })
+  create(
+    @CurrentUser() user: any,
+    @Body() dto: CreateBookingDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.bookingsService.create(user.id, dto, idempotencyKey);
   }
 
   @Get()

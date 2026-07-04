@@ -4,10 +4,18 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { PushService } from './push.service';
+import {
+  categoryForNotifType,
+  mergeNotificationSettings,
+} from './notification-preferences';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private push: PushService,
+  ) {}
 
   // ── GET /notifications ───────────────────────────────────────
   async findAll(userId: string, page = 1, limit = 20) {
@@ -87,7 +95,19 @@ export class NotificationsService {
     body: string,
     data?: object,
   ) {
-    return this.prisma.notification.create({
+    // Honor the user's notification preferences: a muted category still
+    // gets an in-app Notification row (except promotions, which are
+    // skipped entirely) but never a push.
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { notificationSettings: true },
+    });
+    const settings = mergeNotificationSettings(user?.notificationSettings);
+    const muted = !settings[categoryForNotifType(type)];
+
+    if (muted && type === 'promotion') return null;
+
+    const notification = await this.prisma.notification.create({
       data: {
         userId,
         type: type as any,
@@ -96,5 +116,16 @@ export class NotificationsService {
         data: data ?? {},
       },
     });
+
+    // Fire-and-forget push — must never break the caller
+    if (!muted) {
+      this.push
+        .sendToUser(userId, title, body, data as Record<string, any>)
+        .catch((error) =>
+          console.error('Push notification failed:', error.message),
+        );
+    }
+
+    return notification;
   }
 }

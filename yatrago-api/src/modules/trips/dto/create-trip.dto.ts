@@ -69,6 +69,18 @@ export class CreateTripDto {
   @IsNumber()
   originLng: number;
 
+  @ApiPropertyOptional({ example: 'Kathmandu' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  originCity?: string;
+
+  @ApiPropertyOptional({ example: 'Bagmati' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  originState?: string;
+
   @ApiProperty({ example: 'Pokhara' })
   @IsString()
   @MaxLength(200)
@@ -81,6 +93,18 @@ export class CreateTripDto {
   @ApiProperty({ example: 83.9856 })
   @IsNumber()
   destLng: number;
+
+  @ApiPropertyOptional({ example: 'Pokhara' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  destCity?: string;
+
+  @ApiPropertyOptional({ example: 'Gandaki' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  destState?: string;
 
   @ApiProperty({ example: '2026-07-01T08:00:00.000Z' })
   @IsDateString()

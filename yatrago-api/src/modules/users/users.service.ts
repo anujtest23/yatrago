@@ -5,6 +5,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { RegisterDeviceTokenDto } from './dto/register-device-token.dto';
+import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
+import { mergeNotificationSettings } from '../notifications/notification-preferences';
 
 @Injectable()
 export class UsersService {
@@ -113,14 +116,117 @@ export class UsersService {
     return { message: `Switched to ${mode} mode`, activeMode: user.activeMode };
   }
 
-  // ── DELETE /users/me ────────────────────────────────────────
-  async deleteMe(userId: string) {
-    // Soft delete — set isActive to false, don't actually delete
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { isActive: false },
+  // ── POST /users/me/device-token ─────────────────────────────
+  async registerDeviceToken(userId: string, dto: RegisterDeviceTokenDto) {
+    // Upsert by token — if another user previously registered this
+    // device, reassign it to the current user.
+    const token = await this.prisma.deviceToken.upsert({
+      where: { fcmToken: dto.fcmToken },
+      create: {
+        userId,
+        fcmToken: dto.fcmToken,
+        platform: dto.platform as any,
+      },
+      update: {
+        userId,
+        platform: dto.platform as any,
+      },
     });
 
-    return { message: 'Account deactivated successfully' };
+    return { message: 'Device token registered', deviceTokenId: token.id };
+  }
+
+  // ── GET /users/me/notification-settings ─────────────────────
+  async getNotificationSettings(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { notificationSettings: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    return mergeNotificationSettings(user.notificationSettings);
+  }
+
+  // ── PATCH /users/me/notification-settings ────────────────────
+  async updateNotificationSettings(
+    userId: string,
+    dto: UpdateNotificationSettingsDto,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { notificationSettings: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    // Merge the partial update over stored settings (over defaults)
+    const merged = {
+      ...mergeNotificationSettings(user.notificationSettings),
+      ...(dto.bookings !== undefined && { bookings: dto.bookings }),
+      ...(dto.trips !== undefined && { trips: dto.trips }),
+      ...(dto.payments !== undefined && { payments: dto.payments }),
+      ...(dto.promotions !== undefined && { promotions: dto.promotions }),
+      ...(dto.safety !== undefined && { safety: dto.safety }),
+    };
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { notificationSettings: merged },
+    });
+
+    return {
+      message: 'Notification settings updated',
+      settings: merged,
+    };
+  }
+
+  // ── DELETE /users/me ────────────────────────────────────────
+  async deleteMe(userId: string) {
+    // Cannot delete with active passenger bookings
+    const activeBookings = await this.prisma.booking.count({
+      where: {
+        passengerId: userId,
+        status: { in: ['pending', 'confirmed'] as any },
+      },
+    });
+    if (activeBookings > 0) {
+      throw new BadRequestException('Cancel your active bookings/rides first');
+    }
+
+    // Drivers cannot delete with published or in-progress rides
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (driver) {
+      const activeRides = await this.prisma.ride.count({
+        where: {
+          driverId: driver.id,
+          status: { in: ['published', 'in_progress'] as any },
+        },
+      });
+      if (activeRides > 0) {
+        throw new BadRequestException(
+          'Cancel your active bookings/rides first',
+        );
+      }
+    }
+
+    // Soft delete — deactivate now; the account-deletion cron anonymizes
+    // the personal data after the 30-day grace period.
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        deletionRequestedAt: new Date(),
+        isActive: false,
+      },
+    });
+
+    // Force logout everywhere
+    await this.prisma.authSession.deleteMany({ where: { userId } });
+
+    return {
+      message:
+        'Account deletion requested. Your account is deactivated and your data will be permanently anonymized after a 30-day grace period. Log in again within 30 days to reactivate your account.',
+    };
   }
 }

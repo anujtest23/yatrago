@@ -3,13 +3,23 @@ import {
   BadRequestException,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { AppConfigService } from '../platform/app-config.service';
+import { WalletService } from '../platform/wallet.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { RequestPayoutDto } from './dto/request-payout.dto';
 import { extname } from 'path';
 
 @Injectable()
 export class DriversService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private appConfig: AppConfigService,
+    private wallet: WalletService,
+    private notifications: NotificationsService,
+  ) {}
 
   // ── POST /drivers/apply ─────────────────────────────────────
   async apply(userId: string) {
@@ -96,8 +106,25 @@ export class DriversService {
     userId: string,
     side: 'front' | 'back',
     file: Express.Multer.File,
+    expiryDate?: string,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
+
+    // Optional expiry date — must parse and must not be in the past
+    let parsedExpiry: Date | null = null;
+    if (expiryDate !== undefined && expiryDate !== '') {
+      parsedExpiry = new Date(expiryDate);
+      if (isNaN(parsedExpiry.getTime())) {
+        throw new BadRequestException(
+          'expiryDate must be a valid ISO date (e.g. 2028-12-31)',
+        );
+      }
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (parsedExpiry < today) {
+        throw new BadRequestException('License is expired');
+      }
+    }
 
     const driver = await this.getDriverProfile(userId);
     const docType = side === 'front' ? 'license_front' : 'license_back';
@@ -115,11 +142,13 @@ export class DriversService {
         docType: docType as any,
         fileUrl,
         status: 'pending',
+        ...(parsedExpiry && { expiryDate: parsedExpiry }),
       },
       update: {
         fileUrl,
         status: 'pending',
         rejectionReason: null,
+        ...(parsedExpiry && { expiryDate: parsedExpiry }),
       },
     });
 
@@ -415,11 +444,12 @@ export class DriversService {
       throw new NotFoundException('Driver profile not found');
     }
 
-    // Get their reviews
+    // Get their reviews (moderated/hidden ratings excluded)
     const reviews = await this.prisma.rating.findMany({
       where: {
         rateeId: userId,
         rateeType: 'driver',
+        isHidden: false,
       },
       orderBy: { createdAt: 'desc' },
       take: 10,
@@ -449,5 +479,149 @@ export class DriversService {
       recentReviews: reviews,
       totalReviews: reviews.length,
     };
+  }
+  // ── POST /drivers/payouts ────────────────────────────────────
+  async requestPayout(userId: string, dto: RequestPayoutDto) {
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
+    if (!driver) {
+      throw new ForbiddenException(
+        'Driver profile not found. Apply as driver first.',
+      );
+    }
+    if (driver.verificationStatus !== 'approved') {
+      throw new ForbiddenException(
+        `Driver not approved yet. Current status: ${driver.verificationStatus}`,
+      );
+    }
+
+    const minPayout = await this.appConfig.get('min_payout_npr');
+    if (dto.amount < minPayout) {
+      throw new BadRequestException(
+        `Minimum payout amount is NPR ${minPayout}`,
+      );
+    }
+
+    // Debit enforces sufficient balance atomically
+    await this.wallet.debit(
+      userId,
+      dto.amount,
+      'payout',
+      undefined,
+      `Payout request via ${dto.method}`,
+    );
+
+    // Commission was already deducted at escrow release (trip completion),
+    // so the payout carries no additional commission.
+    const payout = await this.prisma.payout.create({
+      data: {
+        driverId: driver.id,
+        grossAmount: dto.amount,
+        commissionRate: 0,
+        commissionAmount: 0,
+        netAmount: dto.amount,
+        method: dto.method,
+        accountReference: dto.accountReference,
+        status: 'pending',
+      },
+    });
+
+    this.notifications
+      .createNotification(
+        userId,
+        'payout_update',
+        'Payout Requested',
+        `Your payout request of NPR ${dto.amount} via ${dto.method} has been received and is pending review.`,
+        { payoutId: payout.id },
+      )
+      .catch(() => undefined);
+
+    return { message: 'Payout requested successfully', payout };
+  }
+
+  // ── PATCH /drivers/payouts/:id/cancel ────────────────────────
+  async cancelPayout(userId: string, payoutId: string) {
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
+    if (!driver) {
+      throw new ForbiddenException(
+        'Driver profile not found. Apply as driver first.',
+      );
+    }
+
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+    });
+    if (!payout) throw new NotFoundException('Payout not found');
+    if (payout.driverId !== driver.id) {
+      throw new ForbiddenException('This payout does not belong to you');
+    }
+    if (payout.status !== 'pending') {
+      throw new BadRequestException(
+        `Only pending payouts can be cancelled. Current status: ${payout.status}`,
+      );
+    }
+
+    await this.prisma.payout.update({
+      where: { id: payoutId },
+      data: {
+        status: 'cancelled',
+        failureReason: 'Cancelled by driver',
+        processedAt: new Date(),
+      },
+    });
+
+    // Return the held funds to the driver's wallet
+    await this.wallet.credit(
+      userId,
+      payout.netAmount,
+      'payout_reversal',
+      payoutId,
+      'Payout cancelled by driver',
+    );
+
+    return { message: 'Payout cancelled and funds returned to wallet' };
+  }
+
+  // ── GET /drivers/payouts ─────────────────────────────────────
+  async getPayouts(userId: string) {
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
+    if (!driver) {
+      throw new ForbiddenException(
+        'Driver profile not found. Apply as driver first.',
+      );
+    }
+
+    const payouts = await this.prisma.payout.findMany({
+      where: { driverId: driver.id },
+      orderBy: { requestedAt: 'desc' },
+    });
+
+    return { payouts, total: payouts.length };
+  }
+
+  async updateLocation(userId: string, lat: number, lng: number) {
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!driver) {
+      throw new NotFoundException('Driver profile not found');
+    }
+
+    await this.prisma.driverProfile.update({
+      where: { userId },
+      data: {
+        lastLat: lat,
+        lastLng: lng,
+        lastLocationAt: new Date(),
+      },
+    });
+
+    return { success: true };
   }
 }

@@ -5,12 +5,39 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { AppConfigService } from '../platform/app-config.service';
+import { WalletService } from '../platform/wallet.service';
+import { SmsService } from '../platform/sms.service';
+import { renderTemplate } from '../notifications/notification-templates';
+import { mergeNotificationSettings } from '../notifications/notification-preferences';
 import { CreateTripDto } from './dto/create-trip.dto';
 import { UpdateTripDto } from './dto/update-trip.dto';
 
 @Injectable()
 export class TripsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private appConfig: AppConfigService,
+    private wallet: WalletService,
+    private sms: SmsService,
+  ) {}
+
+  // Straight-line distance in km (Haversine)
+  private haversineKm(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+  ): number {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const R = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
 
   // ── Helper: get driver profile ───────────────────────────────
   private async getDriverProfile(userId: string) {
@@ -54,10 +81,69 @@ export class TripsService {
       throw new ForbiddenException('Vehicle not found or does not belong to you');
     }
 
-    // Departure must be in the future
+    // Vehicle must be admin-approved (isActive) to be used for rides
+    if (!vehicle.isActive) {
+      throw new ForbiddenException(
+        'This vehicle has not been approved for rides',
+      );
+    }
+
+    // Driver must hold the minimum wallet balance to post rides (the platform
+    // recovers its commission from this wallet after ride completion).
+    const minBalance = await this.appConfig.get('min_wallet_balance');
+    await this.wallet.assertMinBalance(userId, minBalance);
+
+    // Seat limit: driver occupies one seat of the vehicle
+    const maxBookableSeats = vehicle.totalSeats - 1;
+    if (dto.totalSeats > maxBookableSeats) {
+      throw new BadRequestException(
+        `Seats cannot exceed ${maxBookableSeats} for this vehicle (driver occupies one seat)`,
+      );
+    }
+
+    // Departure window: not too soon, not too far out
     const departureAt = new Date(dto.departureAt);
-    if (departureAt <= new Date()) {
-      throw new BadRequestException('Departure time must be in the future');
+    const minDepartureMinutes = await this.appConfig.get(
+      'min_departure_minutes',
+    );
+    const maxDepartureDays = await this.appConfig.get('max_departure_days');
+
+    const minDeparture = new Date(Date.now() + minDepartureMinutes * 60_000);
+    const maxDeparture = new Date(
+      Date.now() + maxDepartureDays * 24 * 60 * 60_000,
+    );
+
+    if (departureAt < minDeparture) {
+      throw new BadRequestException(
+        `Departure must be at least ${minDepartureMinutes} minutes from now`,
+      );
+    }
+    if (departureAt > maxDeparture) {
+      throw new BadRequestException(
+        `Departure cannot be more than ${maxDepartureDays} days from now`,
+      );
+    }
+
+    // Origin and destination must be distinct places
+    const routeKm = this.haversineKm(
+      dto.originLat,
+      dto.originLng,
+      dto.destLat,
+      dto.destLng,
+    );
+    if (routeKm < 1) {
+      throw new BadRequestException(
+        'Origin and destination must be different locations',
+      );
+    }
+
+    // Price cap: per-seat price must not exceed distance × admin cap
+    const priceCapPerKm = await this.appConfig.get('price_cap_per_km');
+    const maxPrice = Math.ceil(routeKm * priceCapPerKm);
+    if (dto.pricePerSeat > maxPrice) {
+      throw new BadRequestException(
+        `Price per seat cannot exceed NPR ${maxPrice} for this route (${Math.round(routeKm)} km at NPR ${priceCapPerKm}/km)`,
+      );
     }
 
     const trip = await this.prisma.ride.create({
@@ -67,9 +153,13 @@ export class TripsService {
         originName: dto.originName,
         originLat: dto.originLat,
         originLng: dto.originLng,
+        originCity: dto.originCity,
+        originState: dto.originState,
         destName: dto.destName,
         destLat: dto.destLat,
         destLng: dto.destLng,
+        destCity: dto.destCity,
+        destState: dto.destState,
         departureAt,
         totalSeats: dto.totalSeats,
         availableSeats: dto.totalSeats,
@@ -182,11 +272,45 @@ export class TripsService {
       );
     }
 
-    // Cannot edit departure if it's less than 1 hour away
+    // Same departure-window rules as trip creation
     if (dto.departureAt) {
       const newDeparture = new Date(dto.departureAt);
-      if (newDeparture <= new Date()) {
-        throw new BadRequestException('Departure time must be in the future');
+      const minDepartureMinutes = await this.appConfig.get(
+        'min_departure_minutes',
+      );
+      const maxDepartureDays = await this.appConfig.get('max_departure_days');
+
+      if (
+        newDeparture < new Date(Date.now() + minDepartureMinutes * 60_000)
+      ) {
+        throw new BadRequestException(
+          `Departure must be at least ${minDepartureMinutes} minutes from now`,
+        );
+      }
+      if (
+        newDeparture >
+        new Date(Date.now() + maxDepartureDays * 24 * 60 * 60_000)
+      ) {
+        throw new BadRequestException(
+          `Departure cannot be more than ${maxDepartureDays} days from now`,
+        );
+      }
+    }
+
+    // Same price-cap rule as trip creation (route is fixed, so use stored coords)
+    if (dto.pricePerSeat !== undefined) {
+      const routeKm = this.haversineKm(
+        trip.originLat,
+        trip.originLng,
+        trip.destLat,
+        trip.destLng,
+      );
+      const priceCapPerKm = await this.appConfig.get('price_cap_per_km');
+      const maxPrice = Math.ceil(routeKm * priceCapPerKm);
+      if (dto.pricePerSeat > maxPrice) {
+        throw new BadRequestException(
+          `Price per seat cannot exceed NPR ${maxPrice} for this route`,
+        );
       }
     }
 
@@ -225,26 +349,93 @@ export class TripsService {
       throw new BadRequestException('Cannot cancel a completed trip');
     }
 
-    // Cancel the trip
-    await this.prisma.ride.update({
-      where: { id: tripId },
-      data: { status: 'cancelled' },
-    });
-
-    // Notify all confirmed passengers — cancel their bookings
-    await this.prisma.booking.updateMany({
+    // Snapshot affected bookings before cancelling
+    const affectedBookings = await this.prisma.booking.findMany({
       where: {
         rideId: tripId,
         status: { in: ['pending', 'confirmed'] },
       },
-      data: {
-        status: 'cancelled',
-        cancellationReason: 'Trip cancelled by driver',
-        cancelledAt: new Date(),
+      include: {
+        passenger: {
+          select: { phoneNumber: true, notificationSettings: true },
+        },
       },
     });
 
-    return { message: 'Trip cancelled successfully' };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.ride.update({
+        where: { id: tripId },
+        data: { status: 'cancelled' },
+      });
+
+      await tx.booking.updateMany({
+        where: {
+          rideId: tripId,
+          status: { in: ['pending', 'confirmed'] },
+        },
+        data: {
+          status: 'cancelled',
+          cancellationReason: 'Trip cancelled by driver',
+          cancelledAt: new Date(),
+        },
+      });
+
+      // Track driver cancellations for trust scoring
+      await tx.driverProfile.update({
+        where: { id: driver.id },
+        data: { cancellationRate: { increment: 1 } },
+      });
+    });
+
+    // Driver cancellation → full refund to every paid passenger (to wallet)
+    for (const booking of affectedBookings) {
+      if (booking.paymentStatus === 'paid' && booking.totalAmount > 0) {
+        await this.wallet.credit(
+          booking.passengerId,
+          booking.totalAmount,
+          'refund',
+          booking.id,
+          'Full refund — ride cancelled by driver',
+        );
+        await this.prisma.booking.update({
+          where: { id: booking.id },
+          data: { paymentStatus: 'refunded' },
+        });
+      }
+
+      await this.prisma.notification.create({
+        data: {
+          userId: booking.passengerId,
+          type: 'booking_rejected',
+          title: 'Ride Cancelled',
+          body: `Your ride from ${trip.originName} to ${trip.destName} was cancelled by the driver.${booking.paymentStatus === 'paid' ? ' A full refund has been credited to your wallet.' : ''}`,
+          data: { bookingId: booking.id, tripId },
+        },
+      });
+
+      // SMS fallback for paid passengers (skipped if bookings muted)
+      if (
+        booking.paymentStatus === 'paid' &&
+        mergeNotificationSettings(booking.passenger.notificationSettings)
+          .bookings
+      ) {
+        const sms = renderTemplate('ride_cancelled_by_driver', {
+          origin: trip.originName,
+          dest: trip.destName,
+          refunded: 'true',
+        });
+        this.sms
+          .send(booking.passenger.phoneNumber, sms.body)
+          .catch(() => undefined);
+      }
+    }
+
+    return {
+      message: 'Trip cancelled successfully',
+      refundedBookings: affectedBookings.filter(
+        (b) => b.paymentStatus === 'paid',
+      ).length,
+    };
   }
   // ── PATCH /trips/:id/start ───────────────────────────────────
   async startTrip(userId: string, tripId: string) {
@@ -352,6 +543,83 @@ export class TripsService {
       },
     });
 
+    // Platform commission — passengers pay the driver directly (off-app), so
+    // the platform earns by DEBITING commission from the driver's wallet once
+    // the ride completes. Configurable: percentage of fares, or a fixed fee.
+    const grossFares = bookings.reduce((sum, b) => sum + b.totalAmount, 0);
+    const commissionMode = await this.appConfig.get('commission_mode');
+    const commissionPercent = await this.appConfig.get('commission_percent');
+    const commissionFixed = await this.appConfig.get('commission_fixed');
+    const minBalance = await this.appConfig.get('min_wallet_balance');
+
+    const commissionAmount =
+      commissionMode === 1
+        ? commissionFixed
+        : Math.round(grossFares * (commissionPercent / 100) * 100) / 100;
+
+    if (commissionAmount > 0) {
+      let commissionStatus = 'charged';
+      try {
+        await this.wallet.debit(
+          userId, // completeTrip caller is the driver's user
+          commissionAmount,
+          'commission',
+          tripId,
+          commissionMode === 1
+            ? `Platform commission (fixed NPR ${commissionFixed}) for ride ${tripId}`
+            : `Platform commission (${commissionPercent}% of NPR ${grossFares}) for ride ${tripId}`,
+        );
+      } catch {
+        // Insufficient balance — record the debt instead of blocking completion.
+        commissionStatus = 'owed';
+      }
+
+      await this.prisma.commissionRecord.create({
+        data: {
+          rideId: tripId,
+          driverId: driver.id,
+          mode: commissionMode === 1 ? 'fixed' : 'percent',
+          rate: commissionMode === 1 ? 0 : commissionPercent,
+          grossFares,
+          amount: commissionAmount,
+          status: commissionStatus,
+        },
+      });
+
+      // Notify the driver of the deduction (or the owed debt).
+      await this.prisma.notification.create({
+        data: {
+          userId,
+          type: commissionStatus === 'owed' ? 'wallet_low' : 'commission_charged',
+          title:
+            commissionStatus === 'owed'
+              ? 'Wallet Balance Too Low'
+              : 'Commission Deducted',
+          body:
+            commissionStatus === 'owed'
+              ? `NPR ${commissionAmount} commission could not be charged — your wallet balance is too low. Please top up.`
+              : `NPR ${commissionAmount} platform commission was deducted from your wallet for your completed ride.`,
+          data: { tripId, amount: commissionAmount },
+        },
+      });
+
+      // Low-balance warning after a successful deduction.
+      if (commissionStatus === 'charged') {
+        const { balance } = await this.wallet.getBalance(userId);
+        if (balance < minBalance) {
+          await this.prisma.notification.create({
+            data: {
+              userId,
+              type: 'wallet_low',
+              title: 'Wallet Balance Low',
+              body: `Your wallet balance (NPR ${balance}) is below the minimum NPR ${minBalance}. Top up to keep posting rides and accepting bookings.`,
+              data: { balance, minBalance },
+            },
+          });
+        }
+      }
+    }
+
     // Notify passengers — prompt them to rate
     await Promise.all(
       bookings.map((b) =>
@@ -379,6 +647,28 @@ export class TripsService {
       status: 'completed',
       totalPassengers: bookings.length,
       totalEarnings: earningsResult._sum.totalAmount ?? 0,
+    };
+  }
+async getDriverLocation(tripId: string) {
+    const trip = await this.prisma.ride.findUnique({
+      where: { id: tripId },
+      include: {
+        driver: true,
+      },
+    });
+
+    if (!trip) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    return {
+      success: true,
+      data: {
+        lat: trip.driver?.lastLat ?? null,
+        lng: trip.driver?.lastLng ?? null,
+        lastUpdatedAt: trip.driver?.lastLocationAt ?? null,
+        tripStatus: trip.status,
+      },
     };
   }
 }
