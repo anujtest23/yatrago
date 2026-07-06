@@ -54,9 +54,7 @@ export class ReviewsService {
     const isDriver = driver && booking.ride.driverId === driver.id;
 
     if (!isPassenger && !isDriver) {
-      throw new ForbiddenException(
-        'You are not part of this booking',
-      );
+      throw new ForbiddenException('You are not part of this booking');
     }
 
     // Passenger can only rate driver, driver can only rate passenger
@@ -65,6 +63,18 @@ export class ReviewsService {
     }
     if (isDriver && dto.rateeType !== 'passenger') {
       throw new BadRequestException('Drivers can only rate passengers');
+    }
+
+    // The ratee is DERIVED from the booking, never trusted from the client:
+    // a client-supplied rateeId would let anyone poison any user's rating
+    // average from a single booking they own (IDOR / reputation attack).
+    const rateeId = isPassenger
+      ? booking.ride.driver.userId
+      : booking.passengerId;
+    if (dto.rateeId && dto.rateeId !== rateeId) {
+      throw new BadRequestException(
+        'rateeId does not match the other participant of this booking',
+      );
     }
 
     // Check not already reviewed
@@ -91,7 +101,7 @@ export class ReviewsService {
       data: {
         bookingId: dto.bookingId,
         raterId: userId,
-        rateeId: dto.rateeId,
+        rateeId,
         rateeType: dto.rateeType as any,
         score: dto.score,
         reviewText: dto.reviewText,
@@ -100,7 +110,7 @@ export class ReviewsService {
     });
 
     // Update the ratee's average rating
-    await this.updateAverageRating(dto.rateeId, dto.rateeType);
+    await this.updateAverageRating(rateeId, dto.rateeType);
 
     return {
       message: 'Review submitted successfully',
@@ -138,9 +148,7 @@ export class ReviewsService {
     // Calculate average
     const total = reviews.length;
     const average =
-      total > 0
-        ? reviews.reduce((sum, r) => sum + r.score, 0) / total
-        : 0;
+      total > 0 ? reviews.reduce((sum, r) => sum + r.score, 0) / total : 0;
 
     // Score breakdown — how many 1s, 2s, 3s, 4s, 5s
     const breakdown = [1, 2, 3, 4, 5].map((score) => ({

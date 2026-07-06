@@ -7,7 +7,12 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiParam,
+} from '@nestjs/swagger';
 import { SafetyService } from './safety.service';
 import { CreateEmergencyContactDto } from './dto/create-emergency-contact.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -28,10 +33,7 @@ export class EmergencyContactsController {
 
   @Post()
   @ApiOperation({ summary: 'Add an emergency contact (max 3)' })
-  addContact(
-    @CurrentUser() user: any,
-    @Body() dto: CreateEmergencyContactDto,
-  ) {
+  addContact(@CurrentUser() user: any, @Body() dto: CreateEmergencyContactDto) {
     return this.safetyService.addEmergencyContact(user.id, dto);
   }
 

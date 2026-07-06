@@ -160,6 +160,11 @@ model User {
   isActive         Boolean   @default(true) @map("is_active")
   notificationSettings Json? @map("notification_settings")
   deletionRequestedAt  DateTime? @map("deletion_requested_at")
+  // TOTP MFA (admin accounts). Secret is AES-256-GCM encrypted at rest.
+  totpSecret       String?   @map("totp_secret")
+  totpEnabledAt    DateTime? @map("totp_enabled_at")
+  // Cumulative fraud score; FraudEvent rows are the ledger behind it.
+  fraudScore       Int       @default(0) @map("fraud_score")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
@@ -176,20 +181,40 @@ model User {
   authSessions     AuthSession[]
   wallet           Wallet?
   sosAlerts        SosAlert[]
+  topUpRequests    TopUpRequest[]
+  fraudEvents      FraudEvent[]
 
   @@map("users")
 }
 
 model AuthSession {
-  id           String   @id @default(uuid())
-  userId       String   @map("user_id")
-  refreshToken String   @unique @map("refresh_token")
-  deviceInfo   String?  @map("device_info")
-  expiresAt    DateTime @map("expires_at")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  // SHA-256 hex of the opaque refresh token. Raw tokens are never persisted:
+  // a database leak must not hand out live sessions.
+  tokenHash  String   @unique @map("token_hash")
+  // Rotation lineage. Every rotation keeps the family id; reuse of a rotated
+  // token revokes the entire family (theft response, RFC 6819 5.2.2.3).
+  familyId   String   @map("family_id")
+  deviceInfo String?  @map("device_info")
+  ipAddress  String?  @map("ip_address")
+  // SHA-256 of the client-supplied device identifier. Used to spot the same
+  // physical device cycling through many accounts (account farming).
+  deviceId   String?  @map("device_id")
+  // GeoIP-resolved login location (only set when a GeoIP DB is configured).
+  // Drives impossible-travel and country-change anomaly detection.
+  country    String?
+  geoLat     Float?   @map("geo_lat")
+  geoLng     Float?   @map("geo_lng")
+  lastUsedAt DateTime @default(now()) @map("last_used_at")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+  @@index([familyId])
+  @@index([deviceId])
   @@map("auth_sessions")
 }
 
@@ -575,6 +600,50 @@ model WalletTransaction {
 
   @@index([walletId])
   @@map("wallet_transactions")
+}
+
+enum TopUpRequestStatus {
+  pending
+  approved
+  rejected
+
+  @@map("topup_request_status")
+}
+
+// Wallet top-ups are never self-service: money enters the system only
+// after an admin verifies the off-app payment and approves the request.
+model TopUpRequest {
+  id          String             @id @default(uuid())
+  userId      String             @map("user_id")
+  amount      Float
+  status      TopUpRequestStatus @default(pending)
+  // Payer-supplied reference for the off-app payment (bank slip no., etc.)
+  reference   String?
+  adminNote   String?            @map("admin_note")
+  processedBy String?            @map("processed_by")
+  processedAt DateTime?          @map("processed_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("topup_requests")
+}
+
+model FraudEvent {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String // e.g. otp_lockout, refresh_reuse, gps_speed, rapid_cancellations
+  score     Int
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@map("fraud_events")
 }
 
 // ─── IDEMPOTENCY ─────────────────────────────────────────────

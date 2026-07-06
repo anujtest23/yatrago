@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { appConfig } from '../../config/app.config';
 
@@ -7,24 +7,37 @@ import { appConfig } from '../../config/app.config';
 // lives in exactly one place.
 @Injectable()
 export class SmsService {
+  private readonly logger = new Logger(SmsService.name);
+
+  private maskPhone(phone: string): string {
+    return phone.slice(0, 6) + '******' + phone.slice(-2);
+  }
+
   async send(phone: string, message: string): Promise<void> {
     // In development, just log the SMS instead of sending a real one
     if (appConfig.nodeEnv === 'development' || !appConfig.sparrowToken) {
-      console.log(`[DEV] SMS to ${phone}: ${message}`);
+      this.logger.debug(`[DEV] SMS to ${phone}: ${message}`);
       return;
     }
 
     try {
-      await axios.get('http://api.sparrowsms.com/v2/sms/', {
-        params: {
+      // HTTPS + POST: the API token and OTP must never cross the wire in
+      // cleartext or land in intermediary access logs as query params.
+      await axios.post(
+        'https://api.sparrowsms.com/v2/sms/',
+        {
           token: appConfig.sparrowToken,
           from: appConfig.sparrowFrom,
           to: phone,
           text: message,
         },
-      });
+        { timeout: 10_000 },
+      );
     } catch (error) {
-      console.error('SMS send failed:', error.message);
+      // Never log message content in production — it may contain an OTP.
+      this.logger.error(
+        `SMS send failed for ${this.maskPhone(phone)}: ${error.message}`,
+      );
       // Don't throw — SMS delivery must never break the caller
     }
   }

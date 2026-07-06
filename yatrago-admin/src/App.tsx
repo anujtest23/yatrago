@@ -15,6 +15,9 @@ import Reports from './pages/Reports';
 import Config from './pages/Config';
 import AuditLogs from './pages/AuditLogs';
 import Admins from './pages/Admins';
+import TopUps from './pages/TopUps';
+import Fraud from './pages/Fraud';
+import Security from './pages/Security';
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { isAuthed, ready } = useAuth();
@@ -56,6 +59,8 @@ export default function App() {
         <Route path="/trips" element={<Trips />} />
         <Route path="/bookings" element={<Bookings />} />
         <Route path="/payouts" element={<Payouts />} />
+        <Route path="/topups" element={<TopUps />} />
+        <Route path="/fraud" element={<Fraud />} />
         <Route path="/sos" element={<Sos />} />
         <Route path="/reports" element={<Reports />} />
         <Route
@@ -67,6 +72,7 @@ export default function App() {
           }
         />
         <Route path="/config" element={<Config />} />
+        <Route path="/security" element={<Security />} />
         <Route path="/audit-logs" element={<AuditLogs />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -17,12 +17,12 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
 
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { publicImageMulterConfig } from '../../common/utils/multer.config';
+import { FileSignatureInterceptor } from '../../common/interceptors/file-signature.interceptor';
 
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SwitchModeDto } from './dto/switch-mode.dto';
@@ -65,27 +65,8 @@ export class UsersController {
     },
   })
   @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads',
-        filename: (req, file, cb) => {
-          const uniqueSuffix =
-            Date.now() + '-' + Math.round(Math.random() * 1e9);
-
-          cb(null, uniqueSuffix + extname(file.originalname));
-        },
-      }),
-      limits: {
-        fileSize: 5 * 1024 * 1024,
-      },
-      fileFilter: (req, file, cb) => {
-        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
-          cb(new Error('Only image files are allowed'), false);
-        } else {
-          cb(null, true);
-        }
-      },
-    }),
+    FileInterceptor('file', publicImageMulterConfig),
+    FileSignatureInterceptor,
   )
   uploadPhoto(
     @CurrentUser() user: any,
@@ -143,10 +124,15 @@ export class UsersController {
     return this.usersService.updateNotificationSettings(user.id, dto);
   }
 
+  @Get('me/export')
+  @ApiOperation({ summary: 'Export all personal data held about this account' })
+  exportData(@CurrentUser() user: any) {
+    return this.usersService.exportData(user.id);
+  }
+
   @Delete('me')
   @ApiOperation({
-    summary:
-      'Request account deletion (soft delete with 30-day grace period)',
+    summary: 'Request account deletion (soft delete with 30-day grace period)',
   })
   deleteMe(@CurrentUser() user: any) {
     return this.usersService.deleteMe(user.id);

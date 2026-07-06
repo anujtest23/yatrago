@@ -65,7 +65,19 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     });
 
     try {
-      final data = await AuthApi.verifyOtp(widget.phoneNumber, _otp);
+      var data = await AuthApi.verifyOtp(widget.phoneNumber, _otp);
+      if (!mounted) return;
+
+      // MFA-enrolled accounts must pass a second factor before any tokens
+      // are issued. Collect the authenticator code and complete the login.
+      if (data['mfaRequired'] == true) {
+        final completed = await _promptMfa(data['mfaToken'] as String);
+        if (completed == null) {
+          setState(() => _isLoading = false);
+          return;
+        }
+        data = completed;
+      }
       if (!mounted) return;
 
       final isNewUser = data['isNewUser'] == true;
@@ -85,6 +97,64 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Prompt for a TOTP code and complete the MFA login. Returns the login
+  /// payload on success, or null if the user cancelled.
+  Future<Map<String, dynamic>?> _promptMfa(String mfaToken) async {
+    final controller = TextEditingController();
+    String? dialogError;
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          Future<void> submit() async {
+            final code = controller.text.trim();
+            if (code.length != 6) {
+              setDialogState(() => dialogError = 'Enter the 6-digit code');
+              return;
+            }
+            try {
+              final result = await AuthApi.verifyMfa(mfaToken, code);
+              if (ctx.mounted) Navigator.pop(ctx, result);
+            } catch (e) {
+              setDialogState(() => dialogError = e.toString());
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Two-factor authentication'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Enter the code from your authenticator app.'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: InputDecoration(
+                    counterText: '',
+                    errorText: dialogError,
+                    hintText: '123456',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, null),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(onPressed: submit, child: const Text('Verify')),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _resendOtp() async {

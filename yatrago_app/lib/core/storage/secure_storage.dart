@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SecureStorage {
@@ -7,6 +9,7 @@ class SecureStorage {
   static const _refreshTokenKey = 'refresh_token';
   static const _userIdKey = 'user_id';
   static const _activeModeKey = 'active_mode';
+  static const _deviceIdKey = 'device_id';
 
   // Access token
   static Future<void> saveAccessToken(String token) async {
@@ -44,9 +47,29 @@ class SecureStorage {
     return _storage.read(key: _activeModeKey);
   }
 
-  // Clear all on logout
+  /// Stable, random install identifier sent as X-Device-Id. Generated once
+  /// (CSPRNG) and hashed server-side; used for account-farming detection.
+  static Future<String> getOrCreateDeviceId() async {
+    final existing = await _storage.read(key: _deviceIdKey);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final rng = Random.secure();
+    final id = List.generate(
+      32,
+      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    await _storage.write(key: _deviceIdKey, value: id);
+    return id;
+  }
+
+  // Clear all on logout — but keep the device identifier: it identifies the
+  // INSTALL, not the user, and losing it on every logout would blind the
+  // multi-account (farming) detection on the server.
   static Future<void> clearAll() async {
+    final deviceId = await _storage.read(key: _deviceIdKey);
     await _storage.deleteAll();
+    if (deviceId != null) {
+      await _storage.write(key: _deviceIdKey, value: deviceId);
+    }
   }
 
   // Check if user is logged in

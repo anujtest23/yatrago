@@ -65,3 +65,4 @@ dist/
 
 uploads/*
 !uploads/.gitkeep
+uploads-private/

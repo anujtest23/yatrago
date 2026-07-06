@@ -7,6 +7,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import * as Sentry from '@sentry/node';
+import { appConfig } from '../../config/app.config';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -32,6 +34,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
       `${request.method} ${request.url} → ${status}`,
       exception instanceof Error ? exception.stack : String(exception),
     );
+
+    // Ship unexpected failures (5xx only — expected 4xx are noise) to Sentry
+    // when configured. Route + method only; never bodies/headers (no PII).
+    if (status >= 500 && appConfig.sentryDsn) {
+      Sentry.captureException(exception, {
+        tags: { method: request.method },
+        extra: { path: request.url },
+      });
+    }
 
     response.status(status).json({
       success: false,

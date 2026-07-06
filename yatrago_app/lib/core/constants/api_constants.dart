@@ -7,7 +7,10 @@ class ApiConstants {
   // Auth
   static const String sendOtp = '/auth/send-otp';
   static const String verifyOtp = '/auth/verify-otp';
+  static const String refresh = '/auth/refresh';
   static const String logout = '/auth/logout';
+  static const String logoutAll = '/auth/logout-all';
+  static const String sessions = '/auth/sessions';
   static const String me = '/auth/me';
 
   // Users

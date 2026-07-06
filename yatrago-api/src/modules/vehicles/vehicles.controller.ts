@@ -27,6 +27,7 @@ import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { imageMulterConfig } from '../../common/utils/multer.config';
+import { FileSignatureInterceptor } from '../../common/interceptors/file-signature.interceptor';
 
 @ApiTags('Vehicles')
 @ApiBearerAuth()
@@ -83,7 +84,10 @@ export class VehiclesController {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
-  @UseInterceptors(FileInterceptor('file', imageMulterConfig))
+  @UseInterceptors(
+    FileInterceptor('file', imageMulterConfig),
+    FileSignatureInterceptor,
+  )
   uploadDocument(
     @CurrentUser() user: any,
     @Param('id') id: string,

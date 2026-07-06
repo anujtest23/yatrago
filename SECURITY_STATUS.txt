@@ -1,0 +1,322 @@
+================================================================================
+YATRAGO / RIDESATHI — SECURITY STATUS REPORT
+Last updated: 2026-07-05 (after THIRD hardening pass)
+Scope: yatrago-api (NestJS), yatrago_app (Flutter), yatrago-admin (React)
+
+Legend:
+  [COMPLETE] built, tested, verified — nothing more to do in code
+  [PARTIAL]  code is done and working, but needs config, data, or an ops
+             step before it is fully effective in production
+  [LEFT]     not done — requires external resources or a future decision
+================================================================================
+
+
+================================================================================
+SECTION 1 — COMPLETED
+================================================================================
+
+--- AUTHENTICATION & SESSIONS ---
+
+[COMPLETE] OTP: crypto.randomInt (CSPRNG), HMAC-peppered storage in Redis,
+           timing-safe compare, single-use, 5-min expiry.
+[COMPLETE] OTP rate limits: 3/phone/10min, 10/IP/hour, 5-fail lockout,
+           per-route throttles (5/min send, 10/min verify, 20/min refresh).
+[COMPLETE] Opaque refresh tokens (384-bit CSPRNG); DB stores SHA-256 hash
+           only. Rotation with FAMILY tracking: reuse of a rotated token
+           revokes the entire session family (theft response). Verified live.
+[COMPLETE] Separate access/refresh signing secrets; iss/aud/type claims
+           pinned (JWT RFC 8725). Access token can never act as refresh
+           or MFA token and vice versa.
+[COMPLETE] Fail-secure config: production refuses to boot on missing/weak
+           secrets; dev uses ephemeral per-boot secrets (no hardcoded
+           fallback exists anywhere).
+[COMPLETE] Session management: 15-min access tokens; 30-day user sessions;
+           12-HOUR admin sessions; 5-session cap with oldest-evicted;
+           GET/DELETE /auth/sessions; POST /auth/logout-all; no
+           revocation oracle on logout.
+[COMPLETE] Nepal mobile validation tightened to ^\+9779[6-8]\d{8}$.
+[COMPLETE] New-device login SMS warning (account-takeover signal).
+[COMPLETE] (pass 3) ADMIN INACTIVITY TIMEOUT: privileged sessions die after
+           ADMIN_INACTIVITY_TIMEOUT_SECONDS (default 1h) without a refresh,
+           independent of the 12h absolute cap; idle timeout is audited.
+[COMPLETE] (pass 3) GEO-ANOMALY LOGIN DETECTION: country-change (+20) and
+           impossible-travel (>900 km/h between GeoIP points, +30) fraud
+           signals with owner SMS warning; session rows now record country
+           + lat/lng per login. Needs only a MaxMind .mmdb file to activate
+           (GEOIP_DB_PATH) — without it, logins work unchanged.
+[COMPLETE] (pass 3) TOR EXIT DETECTION: exit list auto-refreshed 12-hourly
+           in the background (failure-tolerant); logins from exits are
+           fraud-scored (+15), never blocked. TOR_CHECK_ENABLED.
+[COMPLETE] (pass 3) DEVICE FINGERPRINTING: app sends X-Device-Id (random
+           install id from secure storage, survives logout); server stores
+           only its SHA-256. New accounts on a device already used by >=3
+           other accounts in 30 days are fraud-scored (+25, account
+           farming) and audited. Verified live.
+
+--- ADMIN MFA (TOTP) ---
+
+[COMPLETE] TOTP second factor for admin/super_admin (otplib v12 — keep
+           pinned; v13 breaks the authenticator API).
+[COMPLETE] MFA-enrolled logins get NO tokens from verify-otp — only a
+           5-minute single-purpose mfaToken; TOTP fail counter: 5 per 10 min.
+[COMPLETE] TOTP secrets stored AES-256-GCM encrypted.
+[COMPLETE] Admin panel MFA login step + Security page; Flutter MFA dialog.
+[COMPLETE] (pass 3) FORCED ADMIN MFA: with ADMIN_MFA_REQUIRED (production
+           default ON) every /admin/* route returns 403 until the admin has
+           TOTP enrolled. /auth/totp/* stays reachable, so enrollment is
+           always possible — no lock-out deadlock.
+[COMPLETE] (pass 3) ADMIN CONSOLE IDLE LOGOUT: 30 idle minutes in the
+           browser end the session locally and revoke it server-side.
+
+--- FILE UPLOADS ---
+
+[COMPLETE] Server-generated UUID filenames; extension from whitelisted MIME.
+[COMPLETE] Magic-byte content verification after write; mismatches deleted.
+[COMPLETE] EXIF/metadata stripping via sharp re-encode.
+[COMPLETE] KYC documents in a PRIVATE store, served only via 15-min
+           HMAC-signed URLs (tamper/traversal/direct all 404 — verified).
+[COMPLETE] Size caps, nosniff + CSP sandbox headers, PDFs as attachment.
+
+--- WALLET / MONEY ---
+
+[COMPLETE] Top-up mint hole closed: POST /wallet/topup creates a PENDING
+           request; only admin approval credits (atomic + idempotent).
+[COMPLETE] Dual control: credits above ADMIN_CREDIT_SUPER_THRESHOLD
+           require super_admin.
+[COMPLETE] Conditional-decrement debits (no overdraw); trip start/complete
+           race-safe; payout references encrypted (AES-256-GCM).
+[COMPLETE] (pass 3) TOP-UP REQUEST SPAM CAP: >5 requests per 24h is blocked
+           and fraud-scored (+10) — review-queue churn / wallet abuse.
+
+--- FRAUD DETECTION ---
+
+[COMPLETE] FraudService + fraud_events ledger + cumulative users.fraudScore.
+           >=50 warn, >=80 auto-suspend + session revoke (admins exempt).
+[COMPLETE] Signals (pass <=2): OTP lockout +10, refresh reuse +30, GPS mock
+           +15, impossible GPS speed +20, chat contact-share +5, abuse +15.
+[COMPLETE] (pass 3) NEW SIGNALS: tor_exit_login +15, geo_country_change
+           +20, geo_impossible_travel +30, device_multi_account +25,
+           device_integrity (rooted +15 / frida +25 / emulator +10),
+           booking_spam +10 (also blocks: >=8 bookings/hour),
+           rapid_cancellations +15 (>=5 cancels/24h),
+           topup_request_spam +10 (also blocks),
+           chat_suspicious_link +10, chat_malware_link +25.
+[COMPLETE] Admin Fraud Monitor page + endpoints. Verified live (pass 3:
+           rooted-device login → device_integrity event, score 15).
+
+--- GPS INTEGRITY ---
+
+[COMPLETE] Validated location DTO; impossible-speed + mock-location
+           detection feeding the fraud score.
+
+--- CHAT SECURITY ---
+
+[COMPLETE] Rate limit 20 msgs/30s; phone/link/email redaction; abuse-term
+           flagging; participant-only send/read.
+[COMPLETE] (pass 3) MALICIOUS LINK DETECTION: heuristic classifier (URL
+           shorteners, raw-IP hosts, punycode homoglyphs, throwaway TLDs)
+           fraud-scores senders; optional Google Safe Browsing v4 lookup
+           (SAFE_BROWSING_API_KEY) adds +25 for confirmed malware/phishing.
+           Links remain redacted before delivery either way.
+
+--- PLATFORM / API ---
+
+[COMPLETE] helmet, CORS allowlist, 1 MB body cap, Swagger gated in prod,
+           global throttle, validation whitelist, generic errors,
+           HTTPS SMS gateway, masked phones, 0 npm vulnerabilities.
+[COMPLETE] Optional admin IP allowlist before role checks.
+[COMPLETE] (pass 3) WAF / PROXY TRUST HARDENING: TRUST_PROXY now supports
+           hop counts and explicit proxy IP/CIDR lists (Cloudflare/AWS WAF
+           ranges) — X-Forwarded-For is honoured only from configured
+           proxies, so clients cannot spoof their IP for rate limits or
+           audit logs.
+[COMPLETE] (pass 3) MANAGED SECRETS: SECRETS_PROVIDER=aws|gcp|azure hydrates
+           process.env from AWS Secrets Manager / GCP Secret Manager /
+           Azure Key Vault BEFORE any config is read (bootstrap is deferred
+           behind the loader). Fail-secure: a configured-but-unreachable
+           store aborts boot. Explicit env vars still win for overrides.
+[COMPLETE] (pass 3) IDOR FIX — REVIEWS: rateeId was client-supplied and
+           unvalidated; any user's rating average could be poisoned from a
+           single owned booking. Ratee is now DERIVED from the booking
+           participants server-side.
+[COMPLETE] (pass 3) SOS PARAMETER TAMPERING FIX: a referenced bookingId now
+           must belong to the caller (was stored unvalidated).
+
+--- MONITORING / ALERTING ---
+
+[COMPLETE] (pass 3) PROMETHEUS METRICS: GET /api/v1/metrics (prom-client)
+           with default process metrics, HTTP request counts by status
+           class, latency histogram, and security series: otp_sends,
+           otp_failures, otp_lockouts, refresh_reuse, fraud_events{type}.
+           Fails closed: without METRICS_TOKEN the route 404s; with it,
+           scrapes need Authorization: Bearer <token> (timing-safe compare).
+[COMPLETE] (pass 3) SENTRY: SENTRY_DSN enables 5xx exception shipping from
+           the global filter (no bodies/headers — no PII). Off by default.
+[COMPLETE] (pass 3) SECURITY ALERT TRIPWIRES: sliding-window rules — OTP
+           lockout spike (10/10min), refresh-reuse spike (3/10min), fraud
+           auto-suspension surge (5/h) — notify every active admin in-app,
+           write an audit row, and POST to SECURITY_ALERT_WEBHOOK
+           (Slack-compatible). One alert per window (no ops spam).
+
+--- PRIVACY / RETENTION ---
+
+[COMPLETE] GDPR export (self-scoped); deletion with 30-day grace +
+           anonymization cron; nightly retention purges.
+
+--- AUDIT / LOGGING ---
+
+[COMPLETE] Audit events incl. logins (mfa flag), lockouts, reuse detection,
+           MFA changes, top-up decisions, fraud suspensions, admin actions.
+           (pass 3) added: security.alert, account-farming suspicion,
+           admin idle-timeout revocations.
+
+--- FLUTTER APP ---
+
+[COMPLETE] Tokens in secure storage; single-flight refresh; refresh-failure
+           discrimination; HTTPS-only release builds; Active Devices
+           screen; MFA dialog; cert-pinning infrastructure.
+[COMPLETE] (pass 3) SCREENSHOT PROTECTION: FLAG_SECURE in release builds
+           (recents thumbnails, captures, casting all blocked); debug
+           builds stay capturable for development.
+[COMPLETE] (pass 3) RUNTIME ENVIRONMENT CHECKS (pure Dart, no plugin):
+           root artifacts (su binaries, Magisk paths), emulator artifacts
+           (qemu pipes), Frida default port probe, debug-mode flag.
+           Reported via X-Device-Integrity header; server fraud-scores
+           (rooted +15, frida +25, emulator +10, debug recorded unscored).
+           Signals only — strippable by a determined attacker; Play
+           Integrity remains the strong successor (see LEFT).
+[COMPLETE] (pass 3) X-Device-Id install identifier: CSPRNG, kept in secure
+           storage, survives logout (identifies the INSTALL, not the user).
+
+--- ADMIN CONSOLE ---
+
+[COMPLETE] Role-gated console, MFA login step, Wallet Top-Ups, Fraud
+           Monitor, Security page. (pass 3) 30-min idle auto-logout.
+
+--- DEVSECOPS ARTIFACTS ---
+
+[COMPLETE] .github/workflows/security.yml — npm audit (fail on high), tsc,
+           lint, unit tests, gitleaks, CodeQL, admin build.
+[COMPLETE] SECRET_ROTATION_RUNBOOK.md.
+[COMPLETE] scripts/backup-db.sh — encrypted pg_dump; (pass 3) now writes a
+           sha256 manifest next to every backup and ships it off-site too.
+[COMPLETE] (pass 3) scripts/verify-backup.sh — scheduled restore testing:
+           checksum verify → GPG decrypt + gzip integrity → optional FULL
+           restore into a disposable scratch DB with row-count sanity check;
+           failures POST to ALERT_WEBHOOK. Never point RESTORE_TEST_DB_URL
+           at a real database.
+[COMPLETE] scripts/migrate-legacy-kyc.ts (dry-run by default).
+
+
+================================================================================
+SECTION 2 — PARTIALLY COMPLETED
+(code shipped and working; a config/data/ops step remains)
+================================================================================
+
+[PARTIAL] Certificate pinning (Flutter).
+          REMAINING: compute and set CERT_PINS once the production TLS
+          certificate exists (pin leaf + a backup). Until set, standard CA
+          validation applies.
+
+[PARTIAL] Geo-anomaly detection data.
+          DONE (pass 3): full impossible-travel/country-change engine.
+          REMAINING: download a MaxMind GeoLite2-City.mmdb (free account)
+          and set GEOIP_DB_PATH. Without it the engine is dormant.
+
+[PARTIAL] Managed secrets.
+          DONE (pass 3): AWS/GCP/Azure loader, fail-secure boot.
+          REMAINING: create the secret (JSON object of KEY=value), grant the
+          instance role access, set SECRETS_PROVIDER + SECRETS_NAME, and
+          npm-install the matching SDK in the production image.
+
+[PARTIAL] Monitoring stack.
+          DONE (pass 3): /metrics endpoint, Sentry hook, alert tripwires.
+          REMAINING: run Prometheus/Grafana (or a hosted equivalent) and
+          point a scraper at /metrics with METRICS_TOKEN; create a Sentry
+          project and set SENTRY_DSN; set SECURITY_ALERT_WEBHOOK to a real
+          Slack/Discord/Teams webhook; build Grafana dashboards +
+          Alertmanager rules on the exported series.
+
+[PARTIAL] Backup verification.
+          DONE (pass 3): verify-backup.sh (checksum/decrypt/restore-test).
+          REMAINING: schedule backup-db.sh (daily) and verify-backup.sh
+          (weekly, with RESTORE_TEST_DB_URL) in production cron; store
+          BACKUP_PASSPHRASE in the secret manager. WAL/PITR remains a
+          managed-Postgres setting.
+
+[PARTIAL] Cloudflare R2 for KYC. REMAINING: bucket + credentials.
+
+[PARTIAL] Legacy KYC migration. REMAINING: one --apply run at cutover.
+
+[PARTIAL] CI/CD gates. REMAINING: push, confirm first run, mark checks
+          required-for-merge. (Note: eslint currently reports ~187
+          pre-existing no-unsafe-* errors across older files — the CI lint
+          step will need either a cleanup pass or a rule downgrade before
+          it can be a required check.)
+
+[PARTIAL] Production env provisioning. REMAINING: set all required secrets
+          (JWT_*, OTP_PEPPER, FILE_SIGNING_SECRET, ENCRYPTION_KEY,
+          REDIS_PASSWORD, CORS_ORIGINS, TRUST_PROXY, SPARROW_TOKEN) plus
+          the new optional ones (GEOIP_DB_PATH, METRICS_TOKEN, SENTRY_DSN,
+          SECURITY_ALERT_WEBHOOK, SAFE_BROWSING_API_KEY, ADMIN_MFA_REQUIRED,
+          SECRETS_PROVIDER/SECRETS_NAME).
+
+
+================================================================================
+SECTION 3 — LEFT (needs external resources or a decision)
+================================================================================
+
+[LEFT] Third-party penetration test before commercial launch; bug bounty.
+
+[LEFT] Redis AUTH + TLS in production infrastructure (app code supports
+       both — server-config task).
+
+[LEFT] Play Integrity API / App Attest — STRONG device attestation with
+       server-side nonce verification. Requires Google Play Console / Apple
+       Developer project configuration and native integration (the pass-3
+       Dart heuristics are the interim, weaker layer). freeRASP or a
+       similar RASP SDK is the fast path if budget allows.
+
+[LEFT] WebSocket authentication guard — no WebSocket gateway exists yet;
+       when realtime lands, the handshake must validate the access JWT and
+       authorize room joins per booking.
+
+[LEFT] PCI-scope payment gateway integration (removed by design).
+
+[LEFT] OCR validation + duplicate-document detection for KYC.
+
+[LEFT] SIM-swap detection (carrier/HLR lookup provider).
+
+[LEFT] Two-person approval queues for payouts (product decision).
+
+[LEFT] Disposable-email detection — N/A today (accounts are phone-only).
+
+
+================================================================================
+VERIFICATION SNAPSHOT (2026-07-05, after third pass)
+================================================================================
+Backend (yatrago-api):
+  npx tsc --noEmit ............... clean
+  nest build ..................... success (dist/src/main.js)
+  jest ........................... 50/50 passing (7 suites; new:
+                                   login-anomaly, security-alerts,
+                                   extended content-moderation)
+  npm audit --omit=dev ........... 0 vulnerabilities
+  Boot test ...................... server boots through secrets-loader →
+                                   bootstrap chain; /metrics without token
+                                   404s (fails closed)
+  Live-verified .................. login with X-Device-Id + X-Device-
+                                   Integrity: session row stores hashed
+                                   device id; device_integrity fraud event
+                                   scored 15 (rooted) with debug unscored
+
+Admin console (yatrago-admin):
+  tsc + vite build ............... success
+  New: 30-min idle auto-logout.
+
+Flutter (yatrago_app):
+  flutter analyze lib/core ....... 0 errors, 0 warnings (28 pre-existing
+                                   infos in untouched files)
+  New: DeviceIntegrity checks, X-Device-Id header, FLAG_SECURE (release),
+       device id survives logout.
+================================================================================

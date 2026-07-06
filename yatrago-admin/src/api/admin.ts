@@ -163,6 +163,59 @@ export const updateAdminRole = (
 export const revokeAdmin = (userId: string) =>
   api.delete(`/admin/admins/${userId}`).then((r) => r.data);
 
+// ── Wallet top-up requests ─────────────────────────────────────
+export interface TopUpRequestRow {
+  id: string;
+  amount: number;
+  status: 'pending' | 'approved' | 'rejected';
+  reference?: string | null;
+  adminNote?: string | null;
+  createdAt: string;
+  processedAt?: string | null;
+  user: { id: string; fullName: string | null; phoneNumber: string };
+}
+export const getTopUpRequests = (status?: string) =>
+  api
+    .get<{ requests: TopUpRequestRow[]; total: number }>(
+      '/admin/topup-requests',
+      { params: { status } },
+    )
+    .then((r) => r.data);
+
+export const approveTopUpRequest = (id: string) =>
+  api.patch(`/admin/topup-requests/${id}/approve`).then((r) => r.data);
+
+export const rejectTopUpRequest = (id: string, note?: string) =>
+  api.patch(`/admin/topup-requests/${id}/reject`, { note }).then((r) => r.data);
+
+// ── Fraud ──────────────────────────────────────────────────────
+export interface FlaggedUser {
+  id: string;
+  fullName: string | null;
+  phoneNumber: string;
+  role: string;
+  isActive: boolean;
+  fraudScore: number;
+}
+export interface FraudEvent {
+  id: string;
+  type: string;
+  score: number;
+  details?: Record<string, unknown> | null;
+  createdAt: string;
+}
+export const getFlaggedUsers = () =>
+  api
+    .get<{ users: FlaggedUser[]; total: number }>('/admin/fraud/flagged')
+    .then((r) => r.data);
+
+export const getFraudEvents = (userId: string) =>
+  api
+    .get<{ events: FraudEvent[]; total: number }>(
+      `/admin/fraud/${userId}/events`,
+    )
+    .then((r) => r.data);
+
 // ── Audit logs ─────────────────────────────────────────────────
 export interface AuditLogsResponse {
   logs: AuditLog[];

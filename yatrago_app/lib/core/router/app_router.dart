@@ -38,6 +38,7 @@ import '../../features/driver/trip_summary/rate_passenger_screen.dart';
 import '../../features/driver/wallet/driver_wallet_screen.dart';
 import '../../features/shared/notifications/notifications_screen.dart';
 import '../../features/shared/settings/settings_screen.dart';
+import '../../features/shared/settings/device_sessions_screen.dart';
 import '../../features/shared/settings/edit_profile_screen.dart';
 import '../../features/shared/tracking/trip_tracking_screen.dart';
 import 'route_names.dart';
@@ -118,6 +119,10 @@ final appRouter = GoRouter(
         GoRoute(
           path: RouteNames.settings,
           builder: (_, __) => const SettingsScreen(),
+        ),
+        GoRoute(
+          path: RouteNames.deviceSessions,
+          builder: (_, __) => const DeviceSessionsScreen(),
         ),
       ],
     ),

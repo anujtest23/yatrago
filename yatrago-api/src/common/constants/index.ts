@@ -1,5 +1,3 @@
-export const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
-
 export enum UserMode {
   PASSENGER = 'passenger',
   DRIVER = 'driver',

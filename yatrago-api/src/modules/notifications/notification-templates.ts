@@ -25,7 +25,10 @@ type TemplateFn = (params: Record<string, string>) => {
   body: string;
 };
 
-export const NOTIFICATION_TEMPLATES: Record<NotificationTemplateId, TemplateFn> = {
+export const NOTIFICATION_TEMPLATES: Record<
+  NotificationTemplateId,
+  TemplateFn
+> = {
   booking_accepted: (p) => ({
     title: 'Booking Confirmed!',
     body: `Your YatraGo booking from ${p.origin} to ${p.dest} has been accepted by the driver.`,

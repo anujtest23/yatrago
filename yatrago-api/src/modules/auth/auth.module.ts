@@ -6,18 +6,29 @@ import { AuthService } from './auth.service';
 import { RedisService } from './redis.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { TotpService } from './totp.service';
 import { appConfig } from '../../config/app.config';
 
 @Module({
   imports: [
     PassportModule,
     JwtModule.register({
-      secret: appConfig.jwtSecret,
-      signOptions: { expiresIn: appConfig.jwtExpiresIn },
+      secret: appConfig.jwtAccessSecret,
+      signOptions: {
+        expiresIn: appConfig.jwtExpiresIn,
+        issuer: appConfig.jwtIssuer,
+        audience: appConfig.jwtAudience,
+      },
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, RedisService, JwtStrategy, JwtAuthGuard],
+  providers: [
+    AuthService,
+    RedisService,
+    JwtStrategy,
+    JwtAuthGuard,
+    TotpService,
+  ],
   exports: [JwtAuthGuard, RedisService, JwtModule],
 })
 export class AuthModule {}

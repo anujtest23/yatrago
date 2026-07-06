@@ -21,7 +21,8 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
 };
 
 export function categoryForNotifType(type: string): NotificationCategory {
-  if (type.startsWith('booking_') || type === 'ride_reminder') return 'bookings';
+  if (type.startsWith('booking_') || type === 'ride_reminder')
+    return 'bookings';
   if (type.startsWith('trip_')) return 'trips';
   if (
     type === 'payment_received' ||
@@ -37,7 +38,9 @@ export function categoryForNotifType(type: string): NotificationCategory {
 }
 
 // Merge whatever is stored on User.notificationSettings over all-true defaults.
-export function mergeNotificationSettings(stored: unknown): NotificationSettings {
+export function mergeNotificationSettings(
+  stored: unknown,
+): NotificationSettings {
   const settings = { ...DEFAULT_NOTIFICATION_SETTINGS };
   if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
     for (const category of NOTIFICATION_CATEGORIES) {

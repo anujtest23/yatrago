@@ -114,7 +114,9 @@ export class SearchService {
     // distance check happens in JS afterwards), so fetch the full matching
     // set and paginate manually below.
     const [total, allRides] = await Promise.all([
-      hasProximityFilter ? Promise.resolve(0) : this.prisma.ride.count({ where }),
+      hasProximityFilter
+        ? Promise.resolve(0)
+        : this.prisma.ride.count({ where }),
       this.prisma.ride.findMany({
         where,
         ...(hasProximityFilter ? {} : { skip, take: limit }),
@@ -178,16 +180,32 @@ export class SearchService {
       const originDist = (ride: (typeof allRides)[number]) =>
         dto.originLat === undefined || dto.originLng === undefined
           ? 0
-          : this.haversineDistanceKm(dto.originLat, dto.originLng, ride.originLat, ride.originLng);
+          : this.haversineDistanceKm(
+              dto.originLat,
+              dto.originLng,
+              ride.originLat,
+              ride.originLng,
+            );
 
       const destDist = (ride: (typeof allRides)[number]) =>
         dto.destLat === undefined || dto.destLng === undefined
           ? 0
-          : this.haversineDistanceKm(dto.destLat, dto.destLng, ride.destLat, ride.destLng);
+          : this.haversineDistanceKm(
+              dto.destLat,
+              dto.destLng,
+              ride.destLat,
+              ride.destLng,
+            );
 
       const tier1 = allRides.filter((ride) => {
-        const originOk = dto.originLat === undefined || dto.originLng === undefined || originDist(ride) <= PROXIMITY_RADIUS_KM;
-        const destOk = dto.destLat === undefined || dto.destLng === undefined || destDist(ride) <= PROXIMITY_RADIUS_KM;
+        const originOk =
+          dto.originLat === undefined ||
+          dto.originLng === undefined ||
+          originDist(ride) <= PROXIMITY_RADIUS_KM;
+        const destOk =
+          dto.destLat === undefined ||
+          dto.destLng === undefined ||
+          destDist(ride) <= PROXIMITY_RADIUS_KM;
         return originOk && destOk;
       });
 
@@ -198,12 +216,15 @@ export class SearchService {
           ? allRides.filter(
               (ride) =>
                 !tier1Ids.has(ride.id) &&
-                ride.originCity?.toLowerCase() === dto.originCity!.toLowerCase() &&
+                ride.originCity?.toLowerCase() ===
+                  dto.originCity!.toLowerCase() &&
                 ride.destCity?.toLowerCase() === dto.destCity!.toLowerCase(),
             )
           : [];
 
-      tier1.sort((a, b) => originDist(a) + destDist(a) - (originDist(b) + destDist(b)));
+      tier1.sort(
+        (a, b) => originDist(a) + destDist(a) - (originDist(b) + destDist(b)),
+      );
 
       for (const ride of tier1) matchTypeById.set(ride.id, 'nearby');
       for (const ride of tier2) matchTypeById.set(ride.id, 'city');

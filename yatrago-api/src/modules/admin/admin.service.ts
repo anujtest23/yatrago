@@ -2,8 +2,10 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { appConfig } from '../../config/app.config';
 import { RejectDriverDto } from './dto/reject-driver.dto';
 import { RejectPayoutDto } from './dto/reject-payout.dto';
 import { UpdateConfigDto } from './dto/update-config.dto';
@@ -20,6 +22,7 @@ import { UpdateAdminRoleDto } from './dto/update-admin-role.dto';
 import { AuditService } from '../platform/audit.service';
 import { WalletService } from '../platform/wallet.service';
 import { SmsService } from '../platform/sms.service';
+import { FileSignerService } from '../platform/file-signer.service';
 import {
   AppConfigService,
   CONFIG_DEFAULTS,
@@ -38,6 +41,7 @@ export class AdminService {
     private appConfig: AppConfigService,
     private notifications: NotificationsService,
     private sms: SmsService,
+    private fileSigner: FileSignerService,
   ) {}
 
   // Straight-line distance in km (Haversine) — same helper as
@@ -244,7 +248,13 @@ export class AdminService {
     ]);
 
     return {
-      drivers,
+      drivers: drivers.map((d) => ({
+        ...d,
+        documents: d.documents.map((doc) => ({
+          ...doc,
+          fileUrl: this.fileSigner.toClientUrl(doc.fileUrl),
+        })),
+      })),
       pagination: {
         total,
         page,
@@ -397,7 +407,12 @@ export class AdminService {
       },
     });
 
-    await this.audit.log(adminId, 'driver_approved', 'driver_profile', driverProfileId);
+    await this.audit.log(
+      adminId,
+      'driver_approved',
+      'driver_profile',
+      driverProfileId,
+    );
 
     return {
       message: 'Driver approved successfully',
@@ -418,9 +433,7 @@ export class AdminService {
     if (!driver) throw new NotFoundException('Driver profile not found');
 
     if (driver.verificationStatus === 'approved') {
-      throw new BadRequestException(
-        'Cannot reject an already approved driver',
-      );
+      throw new BadRequestException('Cannot reject an already approved driver');
     }
 
     await this.prisma.driverProfile.update({
@@ -442,9 +455,15 @@ export class AdminService {
       },
     });
 
-    await this.audit.log(adminId, 'driver_rejected', 'driver_profile', driverProfileId, {
-      reason: dto.reason,
-    });
+    await this.audit.log(
+      adminId,
+      'driver_rejected',
+      'driver_profile',
+      driverProfileId,
+      {
+        reason: dto.reason,
+      },
+    );
 
     return {
       message: 'Driver rejected successfully',
@@ -697,7 +716,10 @@ export class AdminService {
       reason: dto.reason,
     });
 
-    return { message: 'Payout rejected and funds returned to wallet', payout: updated };
+    return {
+      message: 'Payout rejected and funds returned to wallet',
+      payout: updated,
+    };
   }
 
   // ── GET /admin/sos ───────────────────────────────────────────
@@ -772,7 +794,8 @@ export class AdminService {
     limit?: number;
   }) {
     const page = query.page && query.page > 0 ? query.page : 1;
-    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 100) : 20;
+    const limit =
+      query.limit && query.limit > 0 ? Math.min(query.limit, 100) : 20;
 
     const where = {
       ...(query.actorId && { actorId: query.actorId }),
@@ -820,15 +843,35 @@ export class AdminService {
       value: dto.value,
     });
 
-    return { message: 'Config updated successfully', key: dto.key, value: dto.value };
+    return {
+      message: 'Config updated successfully',
+      key: dto.key,
+      value: dto.value,
+    };
   }
 
   // ── POST /admin/wallets/:userId/credit ───────────────────────
   // Fund a driver's wallet. Since passenger gateways were removed, this is the
   // money-in path for driver top-ups (until a real PSP is integrated).
-  async creditWallet(adminId: string, userId: string, dto: CreditWalletDto) {
+  async creditWallet(
+    adminId: string,
+    adminRole: string,
+    userId: string,
+    dto: CreditWalletDto,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
+
+    // Dual control: large credits require a super_admin, so a single
+    // compromised sub-admin account can't move big money alone.
+    if (
+      dto.amount > appConfig.adminCreditSuperThreshold &&
+      adminRole !== 'super_admin'
+    ) {
+      throw new ForbiddenException(
+        `Credits above NPR ${appConfig.adminCreditSuperThreshold} require a super admin`,
+      );
+    }
 
     await this.wallet.credit(
       userId,
@@ -853,6 +896,108 @@ export class AdminService {
 
     const { balance } = await this.wallet.getBalance(userId);
     return { message: 'Wallet credited successfully', userId, balance };
+  }
+
+  // ── GET /admin/fraud/flagged ─────────────────────────────────
+  async getFlaggedUsers() {
+    const users = await this.prisma.user.findMany({
+      where: { fraudScore: { gt: 0 } },
+      orderBy: { fraudScore: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        fullName: true,
+        phoneNumber: true,
+        role: true,
+        isActive: true,
+        fraudScore: true,
+      },
+    });
+    return { users, total: users.length };
+  }
+
+  // ── GET /admin/fraud/:userId/events ──────────────────────────
+  async getFraudEvents(userId: string) {
+    const events = await this.prisma.fraudEvent.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    return { events, total: events.length };
+  }
+
+  // ── GET /admin/topup-requests ────────────────────────────────
+  async getTopUpRequests(status?: 'pending' | 'approved' | 'rejected') {
+    const requests = await this.prisma.topUpRequest.findMany({
+      where: status ? { status } : {},
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        user: {
+          select: { id: true, fullName: true, phoneNumber: true },
+        },
+      },
+    });
+    return { requests, total: requests.length };
+  }
+
+  // ── PATCH /admin/topup-requests/:id/approve ──────────────────
+  async approveTopUpRequest(adminId: string, requestId: string) {
+    const request = await this.wallet.approveTopUpRequest(requestId, adminId);
+
+    await this.notifications.createNotification(
+      request.userId,
+      'wallet_topup',
+      'Top-Up Approved',
+      `Your top-up request of NPR ${request.amount} has been approved and credited to your wallet.`,
+      { topUpRequestId: request.id, amount: request.amount },
+    );
+
+    await this.audit.log(
+      adminId,
+      'topup_approved',
+      'topup_request',
+      requestId,
+      {
+        userId: request.userId,
+        amount: request.amount,
+      },
+    );
+
+    return { message: 'Top-up request approved and wallet credited', request };
+  }
+
+  // ── PATCH /admin/topup-requests/:id/reject ───────────────────
+  async rejectTopUpRequest(adminId: string, requestId: string, note?: string) {
+    const request = await this.wallet.rejectTopUpRequest(
+      requestId,
+      adminId,
+      note,
+    );
+
+    await this.notifications.createNotification(
+      request.userId,
+      'wallet_topup',
+      'Top-Up Rejected',
+      note
+        ? `Your top-up request of NPR ${request.amount} was rejected: ${note}`
+        : `Your top-up request of NPR ${request.amount} was rejected.`,
+      { topUpRequestId: request.id },
+    );
+
+    await this.audit.log(
+      adminId,
+      'topup_rejected',
+      'topup_request',
+      requestId,
+      {
+        userId: request.userId,
+        amount: request.amount,
+        note,
+      },
+    );
+
+    return { message: 'Top-up request rejected', request };
   }
 
   // ── PATCH /admin/rides/:id/cancel ────────────────────────────
@@ -997,7 +1142,16 @@ export class AdminService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return { vehicles, total: vehicles.length };
+    return {
+      vehicles: vehicles.map((v) => ({
+        ...v,
+        documents: v.documents.map((doc) => ({
+          ...doc,
+          fileUrl: this.fileSigner.toClientUrl(doc.fileUrl),
+        })),
+      })),
+      total: vehicles.length,
+    };
   }
 
   // ── PATCH /admin/vehicles/:id/approve ────────────────────────
@@ -1057,7 +1211,11 @@ export class AdminService {
       reason: dto.reason,
     });
 
-    return { message: 'Vehicle rejected successfully', vehicleId, reason: dto.reason };
+    return {
+      message: 'Vehicle rejected successfully',
+      vehicleId,
+      reason: dto.reason,
+    };
   }
 
   // ── PATCH /admin/rides/:id/price ─────────────────────────────
@@ -1310,7 +1468,10 @@ export class AdminService {
     }
 
     // Never leave the platform without a super admin.
-    if (target.role === 'super_admin' && dto.role !== GrantableRole.super_admin) {
+    if (
+      target.role === 'super_admin' &&
+      dto.role !== GrantableRole.super_admin
+    ) {
       await this.assertNotLastSuperAdmin(targetUserId);
     }
 

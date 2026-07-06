@@ -47,7 +47,9 @@ export class BookingsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get my bookings — pass role=passenger or role=driver' })
+  @ApiOperation({
+    summary: 'Get my bookings — pass role=passenger or role=driver',
+  })
   @ApiQuery({
     name: 'role',
     required: false,
@@ -102,7 +104,9 @@ export class BookingsController {
     return this.bookingsService.reject(user.id, id, dto);
   }
   @Post('messages')
-  @ApiOperation({ summary: 'Send a message to driver or passenger in a booking' })
+  @ApiOperation({
+    summary: 'Send a message to driver or passenger in a booking',
+  })
   sendMessage(@CurrentUser() user: any, @Body() dto: SendMessageDto) {
     return this.bookingsService.sendMessage(user.id, dto);
   }
@@ -110,10 +114,7 @@ export class BookingsController {
   @Get('messages/:bookingId')
   @ApiOperation({ summary: 'Get all messages for a booking' })
   @ApiParam({ name: 'bookingId', description: 'Booking ID' })
-  getMessages(
-    @CurrentUser() user: any,
-    @Param('bookingId') bookingId: string,
-  ) {
+  getMessages(@CurrentUser() user: any, @Param('bookingId') bookingId: string) {
     return this.bookingsService.getMessages(user.id, bookingId);
   }
 }

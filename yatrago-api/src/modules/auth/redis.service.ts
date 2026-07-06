@@ -1,58 +1,104 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import Redis from 'ioredis';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { appConfig } from '../../config/app.config';
 
+/**
+ * Redis-backed auth state.
+ *
+ * Security notes:
+ *  - OTPs are stored as HMAC-SHA256(pepper, phone:otp), never in plaintext,
+ *    so a Redis dump or debug session can't reveal live codes.
+ *  - Comparison is timing-safe.
+ *  - Rotated/revoked refresh tokens are blacklisted BY HASH and mapped to
+ *    their session family, enabling token-theft (reuse) detection.
+ */
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
-  private client: Redis;
+  private readonly logger = new Logger(RedisService.name);
+  private client!: Redis;
 
   onModuleInit() {
     this.client = new Redis({
       host: appConfig.redisHost,
       port: appConfig.redisPort,
+      password: appConfig.redisPassword,
+      maxRetriesPerRequest: 3,
     });
-    this.client.on('connect', () => console.log('Redis connected'));
-    this.client.on('error', (err) => console.error('Redis error', err));
+    this.client.on('connect', () => this.logger.log('Redis connected'));
+    this.client.on('error', (err) =>
+      this.logger.error(`Redis error: ${err.message}`),
+    );
   }
 
   async onModuleDestroy() {
     await this.client.quit();
   }
 
-  // Store OTP — expires in 5 minutes
+  // ── OTP storage (hashed at rest) ──────────────────────────────
+
+  private hashOtp(phone: string, otp: string): string {
+    return createHmac('sha256', appConfig.otpPepper)
+      .update(`${phone}:${otp}`)
+      .digest('hex');
+  }
+
+  /** Store OTP hash — expires in 5 minutes. */
   async setOtp(phone: string, otp: string): Promise<void> {
-    await this.client.set(`otp:${phone}`, otp, 'EX', 300);
+    await this.client.set(`otp:${phone}`, this.hashOtp(phone, otp), 'EX', 300);
   }
 
-  // Get OTP
-  async getOtp(phone: string): Promise<string | null> {
-    return this.client.get(`otp:${phone}`);
+  /** True if an unexpired OTP exists for this phone. */
+  async hasOtp(phone: string): Promise<boolean> {
+    return (await this.client.exists(`otp:${phone}`)) === 1;
   }
 
-  // Delete OTP after verified
+  /** Timing-safe verification against the stored hash. */
+  async verifyOtp(phone: string, otp: string): Promise<boolean> {
+    const stored = await this.client.get(`otp:${phone}`);
+    if (!stored) return false;
+    const candidate = this.hashOtp(phone, otp);
+    const a = Buffer.from(stored, 'hex');
+    const b = Buffer.from(candidate, 'hex');
+    return a.length === b.length && timingSafeEqual(a, b);
+  }
+
+  /** Delete OTP once verified (single use). */
   async deleteOtp(phone: string): Promise<void> {
     await this.client.del(`otp:${phone}`);
   }
 
-  // Count an OTP send for this phone; returns the count within the
-  // rolling 10-minute window. Caller rejects when count exceeds limit.
-  async incrementOtpSendCount(phone: string): Promise<number> {
-    const key = `otp_sends:${phone}`;
+  // ── Abuse counters ────────────────────────────────────────────
+
+  private async incrementWindow(
+    key: string,
+    windowSeconds: number,
+  ): Promise<number> {
     const count = await this.client.incr(key);
     if (count === 1) {
-      await this.client.expire(key, 600);
+      await this.client.expire(key, windowSeconds);
     }
     return count;
   }
 
-  // Count a failed OTP verification; window 10 minutes.
+  /** OTP sends per phone; rolling 10-minute window. */
+  async incrementOtpSendCount(phone: string): Promise<number> {
+    return this.incrementWindow(`otp_sends:${phone}`, 600);
+  }
+
+  /** OTP sends per source IP; rolling 1-hour window (SIM-rotation abuse). */
+  async incrementOtpIpCount(ip: string): Promise<number> {
+    return this.incrementWindow(`otp_ip:${ip}`, 3600);
+  }
+
+  /** Failed OTP verifications per phone; rolling 10-minute window. */
   async incrementOtpFailCount(phone: string): Promise<number> {
-    const key = `otp_fails:${phone}`;
-    const count = await this.client.incr(key);
-    if (count === 1) {
-      await this.client.expire(key, 600);
-    }
-    return count;
+    return this.incrementWindow(`otp_fails:${phone}`, 600);
   }
 
   async getOtpFailCount(phone: string): Promise<number> {
@@ -64,14 +110,38 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.client.del(`otp_fails:${phone}`);
   }
 
-  // Block a refresh token on logout
-  async blacklistToken(token: string, ttlSeconds: number): Promise<void> {
-    await this.client.set(`blacklist:${token}`, '1', 'EX', ttlSeconds);
+  /** Failed TOTP codes per user; rolling 10-minute window. */
+  async incrementTotpFailCount(userId: string): Promise<number> {
+    return this.incrementWindow(`totp_fails:${userId}`, 600);
   }
 
-  // Check if token is blacklisted
-  async isBlacklisted(token: string): Promise<boolean> {
-    const val = await this.client.get(`blacklist:${token}`);
-    return val === '1';
+  async getTotpFailCount(userId: string): Promise<number> {
+    const val = await this.client.get(`totp_fails:${userId}`);
+    return val ? parseInt(val, 10) : 0;
+  }
+
+  async clearTotpFailCount(userId: string): Promise<void> {
+    await this.client.del(`totp_fails:${userId}`);
+  }
+
+  // ── Refresh-token revocation (by hash) ────────────────────────
+
+  /**
+   * Blacklist a rotated/revoked refresh-token hash and remember which
+   * session family it belonged to. A later lookup hit means the token
+   * was REUSED after rotation — i.e. stolen — and the whole family
+   * must be revoked.
+   */
+  async blacklistRefreshHash(
+    tokenHash: string,
+    familyId: string,
+    ttlSeconds: number,
+  ): Promise<void> {
+    await this.client.set(`bl_rt:${tokenHash}`, familyId, 'EX', ttlSeconds);
+  }
+
+  /** Returns the family id if this hash was already rotated/revoked. */
+  async getBlacklistedFamily(tokenHash: string): Promise<string | null> {
+    return this.client.get(`bl_rt:${tokenHash}`);
   }
 }

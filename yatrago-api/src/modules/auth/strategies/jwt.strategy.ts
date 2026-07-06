@@ -4,17 +4,33 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../../database/prisma.service';
 import { appConfig } from '../../../config/app.config';
 
+interface AccessTokenPayload {
+  sub: string;
+  type: string;
+  iss: string;
+  aud: string;
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private prisma: PrismaService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: appConfig.jwtSecret,
+      secretOrKey: appConfig.jwtAccessSecret,
+      // RFC 8725: pin issuer and audience so tokens minted for another
+      // context can never authenticate here.
+      issuer: appConfig.jwtIssuer,
+      audience: appConfig.jwtAudience,
     });
   }
 
-  async validate(payload: { sub: string; phone: string }) {
+  async validate(payload: AccessTokenPayload) {
+    // Only ACCESS tokens grant API access — never any other token class.
+    if (payload.type !== 'access') {
+      throw new UnauthorizedException('Invalid token');
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
     });

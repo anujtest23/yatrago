@@ -60,9 +60,7 @@ export class NotificationsService {
     }
 
     if (notification.userId !== userId) {
-      throw new ForbiddenException(
-        'This notification does not belong to you',
-      );
+      throw new ForbiddenException('This notification does not belong to you');
     }
 
     await this.prisma.notification.update({

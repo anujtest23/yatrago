@@ -51,6 +51,7 @@ dependencies:
   shimmer: ^3.0.0
   riverpod_annotation: ^4.0.3
   flutter_map_animations: ^0.7.0
+  crypto: ^3.0.7
 
 
 dev_dependencies:

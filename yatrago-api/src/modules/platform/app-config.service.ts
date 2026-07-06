@@ -32,9 +32,7 @@ export class AppConfigService {
 
     const row = await this.prisma.appConfig.findUnique({ where: { key } });
     const value =
-      row && typeof row.value === 'number'
-        ? row.value
-        : CONFIG_DEFAULTS[key];
+      row && typeof row.value === 'number' ? row.value : CONFIG_DEFAULTS[key];
 
     this.cache.set(key, {
       value,

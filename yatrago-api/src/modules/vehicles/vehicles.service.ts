@@ -5,12 +5,18 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { FileSignerService } from '../platform/file-signer.service';
+import { StorageService } from '../platform/storage.service';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 
 @Injectable()
 export class VehiclesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private fileSigner: FileSignerService,
+    private storage: StorageService,
+  ) {}
 
   // ── Helper: get driver profile or throw ─────────────────────
   private async getDriverProfile(userId: string) {
@@ -98,7 +104,7 @@ export class VehiclesService {
     const driver = await this.getDriverProfile(userId);
     const vehicle = await this.getVehicleOrThrow(vehicleId, driver.id);
 
-    return this.prisma.vehicle.findUnique({
+    const result = await this.prisma.vehicle.findUnique({
       where: { id: vehicleId },
       include: {
         documents: {
@@ -111,6 +117,15 @@ export class VehiclesService {
         },
       },
     });
+
+    if (!result) return result;
+    return {
+      ...result,
+      documents: result.documents.map((d) => ({
+        ...d,
+        fileUrl: this.fileSigner.toClientUrl(d.fileUrl),
+      })),
+    };
   }
 
   // ── PATCH /vehicles/:id ─────────────────────────────────────
@@ -148,7 +163,7 @@ export class VehiclesService {
   }
 
   // ── POST /vehicles/:id/documents ────────────────────────────
-async uploadDocument(
+  async uploadDocument(
     userId: string,
     vehicleId: string,
     docType: 'bluebook' | 'insurance',
@@ -157,7 +172,9 @@ async uploadDocument(
     const driver = await this.getDriverProfile(userId);
     await this.getVehicleOrThrow(vehicleId, driver.id);
 
-    const fileUrl = `/uploads/${file.filename}`;
+    // Private storage key; clients only ever see signed URLs.
+    const fileUrl = `kyc/${file.filename}`;
+    await this.storage.persistFromLocal(file.path, fileUrl, file.mimetype);
 
     const existingDoc = await this.prisma.vehicleDocument.findFirst({
       where: { vehicleId, docType: docType as any },
@@ -181,6 +198,7 @@ async uploadDocument(
 
     return {
       message: `${docType} uploaded successfully`,
-      fileUrl,
+      fileUrl: this.fileSigner.toClientUrl(fileUrl),
     };
-  }}
+  }
+}

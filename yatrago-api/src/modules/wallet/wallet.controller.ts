@@ -19,9 +19,17 @@ export class WalletController {
   }
 
   @Post('topup')
-  @ApiOperation({ summary: 'Top up wallet balance' })
+  @ApiOperation({
+    summary: 'Request a wallet top-up (credited after admin verification)',
+  })
   topUp(@CurrentUser() user: any, @Body() dto: TopUpDto) {
-    return this.walletService.topUp(user.id, dto.amount);
+    return this.walletService.requestTopUp(user.id, dto.amount, dto.reference);
+  }
+
+  @Get('topup-requests')
+  @ApiOperation({ summary: 'List my top-up requests and their status' })
+  listTopUpRequests(@CurrentUser() user: any) {
+    return this.walletService.listTopUpRequests(user.id);
   }
 
   @Get('commissions')

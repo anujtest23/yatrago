@@ -10,7 +10,10 @@ import { AppConfigService } from '../platform/app-config.service';
 import { WalletService } from '../platform/wallet.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RequestPayoutDto } from './dto/request-payout.dto';
-import { extname } from 'path';
+import { FileSignerService } from '../platform/file-signer.service';
+import { EncryptionService } from '../platform/encryption.service';
+import { FraudService } from '../platform/fraud.service';
+import { StorageService } from '../platform/storage.service';
 
 @Injectable()
 export class DriversService {
@@ -19,6 +22,10 @@ export class DriversService {
     private appConfig: AppConfigService,
     private wallet: WalletService,
     private notifications: NotificationsService,
+    private fileSigner: FileSignerService,
+    private encryption: EncryptionService,
+    private fraud: FraudService,
+    private storage: StorageService,
   ) {}
 
   // ── POST /drivers/apply ─────────────────────────────────────
@@ -69,7 +76,9 @@ export class DriversService {
 
     const driver = await this.getDriverProfile(userId);
     const docType = side === 'front' ? 'citizenship_front' : 'citizenship_back';
-    const fileUrl = `/uploads/${file.filename}`;
+    // Stored as a private storage key; clients only ever see signed URLs.
+    const fileUrl = `kyc/${file.filename}`;
+    await this.storage.persistFromLocal(file.path, fileUrl, file.mimetype);
 
     await this.prisma.driverDocument.upsert({
       where: {
@@ -97,7 +106,7 @@ export class DriversService {
     return {
       message: `Citizenship ${side} uploaded successfully`,
       docType,
-      fileUrl,
+      fileUrl: this.fileSigner.toClientUrl(fileUrl),
     };
   }
 
@@ -128,7 +137,8 @@ export class DriversService {
 
     const driver = await this.getDriverProfile(userId);
     const docType = side === 'front' ? 'license_front' : 'license_back';
-    const fileUrl = `/uploads/${file.filename}`;
+    const fileUrl = `kyc/${file.filename}`;
+    await this.storage.persistFromLocal(file.path, fileUrl, file.mimetype);
 
     await this.prisma.driverDocument.upsert({
       where: {
@@ -157,7 +167,7 @@ export class DriversService {
     return {
       message: `License ${side} uploaded successfully`,
       docType,
-      fileUrl,
+      fileUrl: this.fileSigner.toClientUrl(fileUrl),
     };
   }
 
@@ -166,7 +176,8 @@ export class DriversService {
     if (!file) throw new BadRequestException('No file uploaded');
 
     const driver = await this.getDriverProfile(userId);
-    const fileUrl = `/uploads/${file.filename}`;
+    const fileUrl = `kyc/${file.filename}`;
+    await this.storage.persistFromLocal(file.path, fileUrl, file.mimetype);
 
     await this.prisma.driverDocument.upsert({
       where: {
@@ -192,7 +203,7 @@ export class DriversService {
 
     return {
       message: 'Selfie uploaded successfully',
-      fileUrl,
+      fileUrl: this.fileSigner.toClientUrl(fileUrl),
     };
   }
 
@@ -236,8 +247,12 @@ export class DriversService {
     const checklist = requiredDocs.map((doc) => ({
       docType: doc,
       uploaded: uploadedTypes.includes(doc as any),
-      status: driver.documents.find((d) => d.docType === doc)?.status ?? 'not_uploaded',
-      rejectionReason: driver.documents.find((d) => d.docType === doc)?.rejectionReason ?? null,
+      status:
+        driver.documents.find((d) => d.docType === doc)?.status ??
+        'not_uploaded',
+      rejectionReason:
+        driver.documents.find((d) => d.docType === doc)?.rejectionReason ??
+        null,
     }));
 
     return {
@@ -522,7 +537,8 @@ export class DriversService {
         commissionAmount: 0,
         netAmount: dto.amount,
         method: dto.method,
-        accountReference: dto.accountReference,
+        // Bank/wallet account numbers are PII — encrypted at rest.
+        accountReference: this.encryption.encrypt(dto.accountReference),
         status: 'pending',
       },
     });
@@ -596,21 +612,57 @@ export class DriversService {
       );
     }
 
-    const payouts = await this.prisma.payout.findMany({
+    const rawPayouts = await this.prisma.payout.findMany({
       where: { driverId: driver.id },
       orderBy: { requestedAt: 'desc' },
     });
+    const payouts = rawPayouts.map((p) => ({
+      ...p,
+      accountReference: p.accountReference
+        ? this.encryption.decrypt(p.accountReference)
+        : p.accountReference,
+    }));
 
     return { payouts, total: payouts.length };
   }
 
-  async updateLocation(userId: string, lat: number, lng: number) {
+  async updateLocation(
+    userId: string,
+    lat: number,
+    lng: number,
+    isMock = false,
+  ) {
     const driver = await this.prisma.driverProfile.findUnique({
       where: { userId },
     });
 
     if (!driver) {
       throw new NotFoundException('Driver profile not found');
+    }
+
+    // GPS integrity: mock-location and impossible-speed jumps raise the
+    // fraud score. We still store the point (dropping it would blind
+    // support), but the anomaly is recorded for review.
+    if (isMock) {
+      await this.fraud.record(userId, 'gps_mock', 15, { lat, lng });
+    } else if (
+      driver.lastLat != null &&
+      driver.lastLng != null &&
+      driver.lastLocationAt
+    ) {
+      const km = this.haversineKm(driver.lastLat, driver.lastLng, lat, lng);
+      const hours = (Date.now() - driver.lastLocationAt.getTime()) / 3_600_000;
+      // Ignore sub-second deltas (division blow-up) and tiny hops.
+      if (hours > 0.0006 && km > 1) {
+        const speedKmh = km / hours;
+        // > 250 km/h between two consumer-GPS pings = teleport/spoof.
+        if (speedKmh > 250) {
+          await this.fraud.record(userId, 'gps_speed', 20, {
+            speedKmh: Math.round(speedKmh),
+            km: Math.round(km),
+          });
+        }
+      }
     }
 
     await this.prisma.driverProfile.update({
@@ -623,5 +675,23 @@ export class DriversService {
     });
 
     return { success: true };
+  }
+
+  // Haversine great-circle distance in km.
+  private haversineKm(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+  ): number {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 }

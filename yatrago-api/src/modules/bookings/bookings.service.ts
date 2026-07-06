@@ -17,6 +17,9 @@ import { SendMessageDto } from './dto/send-message.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { renderTemplate } from '../notifications/notification-templates';
 import { mergeNotificationSettings } from '../notifications/notification-preferences';
+import { FraudService } from '../platform/fraud.service';
+import { SafeBrowsingService } from '../platform/safe-browsing.service';
+import { moderateMessage } from '../../common/utils/content-moderation';
 @Injectable()
 export class BookingsService {
   constructor(
@@ -25,6 +28,8 @@ export class BookingsService {
     private appConfig: AppConfigService,
     private wallet: WalletService,
     private sms: SmsService,
+    private fraud: FraudService,
+    private safeBrowsing: SafeBrowsingService,
   ) {}
 
   // ── POST /bookings ───────────────────────────────────────────
@@ -36,11 +41,32 @@ export class BookingsService {
       });
       if (existing) {
         if (existing.userId !== userId) {
-          throw new ForbiddenException('Idempotency key belongs to another user');
+          throw new ForbiddenException(
+            'Idempotency key belongs to another user',
+          );
         }
         return existing.response as any;
       }
     }
+
+    // Anti-automation: a human books a handful of rides an hour, a bot
+    // books hundreds (inventory-lockup / harassment vector). Applies before
+    // any seat math so spam never touches ride state.
+    const recentBookings = await this.prisma.booking.count({
+      where: {
+        passengerId: userId,
+        bookedAt: { gte: new Date(Date.now() - 3600_000) },
+      },
+    });
+    if (recentBookings >= 8) {
+      await this.fraud.record(userId, 'booking_spam', 10, {
+        bookingsLastHour: recentBookings,
+      });
+      throw new BadRequestException(
+        'Too many booking requests. Please try again later.',
+      );
+    }
+
     // Get the ride
     const ride = await this.prisma.ride.findUnique({
       where: { id: dto.rideId },
@@ -363,6 +389,20 @@ export class BookingsService {
       }
     });
 
+    // Serial cancellers strand drivers and lock up seats for real riders.
+    const cancelledToday = await this.prisma.booking.count({
+      where: {
+        passengerId: userId,
+        status: 'cancelled',
+        cancelledAt: { gte: new Date(Date.now() - 24 * 3600_000) },
+      },
+    });
+    if (cancelledToday >= 5) {
+      await this.fraud.record(userId, 'rapid_cancellations', 15, {
+        cancelledLast24h: cancelledToday,
+      });
+    }
+
     return {
       message: 'Booking cancelled successfully',
     };
@@ -501,11 +541,7 @@ export class BookingsService {
   }
 
   // ── PATCH /bookings/:id/reject ───────────────────────────────
-  async reject(
-    userId: string,
-    bookingId: string,
-    dto: RejectBookingDto,
-  ) {
+  async reject(userId: string, bookingId: string, dto: RejectBookingDto) {
     const driver = await this.prisma.driverProfile.findUnique({
       where: { userId },
     });
@@ -575,15 +611,62 @@ export class BookingsService {
       throw new ForbiddenException('You are not part of this booking');
     }
 
+    // Rate limit: max 20 messages per sender per 30s window (spam guard).
+    const recentCount = await this.prisma.message.count({
+      where: {
+        senderId: userId,
+        sentAt: { gte: new Date(Date.now() - 30_000) },
+      },
+    });
+    if (recentCount >= 20) {
+      throw new BadRequestException(
+        'You are sending messages too quickly. Please slow down.',
+      );
+    }
+
+    // Moderate: redact phone numbers / links / emails (off-platform
+    // bypass), flag abuse. Delivered but sanitized.
+    const { clean, flags, urls } = moderateMessage(dto.content);
+    if (flags.includes('phone') || flags.includes('link')) {
+      await this.fraud.record(userId, 'chat_contact_share', 5, {
+        bookingId: dto.bookingId,
+        flags,
+      });
+    }
+    if (flags.includes('suspicious_link')) {
+      // Shortener / raw-IP / punycode / throwaway-TLD link — phishing shape.
+      await this.fraud.record(userId, 'chat_suspicious_link', 10, {
+        bookingId: dto.bookingId,
+      });
+    }
+    if (flags.includes('abuse')) {
+      await this.fraud.record(userId, 'chat_abuse', 15, {
+        bookingId: dto.bookingId,
+      });
+    }
+    if (urls.length > 0 && this.safeBrowsing.enabled) {
+      // Reputation lookup runs after delivery (links are redacted anyway);
+      // a confirmed malware/phishing URL is a heavy sender signal.
+      void this.safeBrowsing.anyMalicious(urls).then((malicious) => {
+        if (malicious) {
+          void this.fraud.record(userId, 'chat_malware_link', 25, {
+            bookingId: dto.bookingId,
+          });
+        }
+      });
+    }
+
     // Receiver is the other party
-    const receiverId = isPassenger ? booking.ride.driver.userId : booking.passengerId;
+    const receiverId = isPassenger
+      ? booking.ride.driver.userId
+      : booking.passengerId;
 
     const message = await this.prisma.message.create({
       data: {
         bookingId: dto.bookingId,
         senderId: userId,
         receiverId,
-        content: dto.content,
+        content: clean,
       },
       include: {
         sender: {

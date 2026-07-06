@@ -42,6 +42,7 @@ class RouteNames {
   // Shared
   static const String settings = '/settings';
   static const String editProfile = '/settings/edit-profile';
+  static const String deviceSessions = '/settings/devices';
   static const String notifications = '/notifications';
   static const String tripTracking = '/trip-tracking';
 

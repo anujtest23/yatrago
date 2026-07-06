@@ -20,6 +20,7 @@ import { SafetyModule } from './modules/safety/safety.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { MetricsInterceptor } from './common/interceptors/metrics.interceptor';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })

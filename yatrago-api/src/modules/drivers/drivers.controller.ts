@@ -28,6 +28,8 @@ import { DriversService } from './drivers.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { imageMulterConfig } from '../../common/utils/multer.config';
+import { FileSignatureInterceptor } from '../../common/interceptors/file-signature.interceptor';
+import { UpdateLocationDto } from './dto/update-location.dto';
 import { RequestPayoutDto } from './dto/request-payout.dto';
 
 @ApiTags('Drivers')
@@ -38,7 +40,9 @@ export class DriversController {
   @Post('apply')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Start driver application — creates driver profile' })
+  @ApiOperation({
+    summary: 'Start driver application — creates driver profile',
+  })
   apply(@CurrentUser() user: any) {
     return this.driversService.apply(user.id);
   }
@@ -55,7 +59,10 @@ export class DriversController {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
-  @UseInterceptors(FileInterceptor('file', imageMulterConfig))
+  @UseInterceptors(
+    FileInterceptor('file', imageMulterConfig),
+    FileSignatureInterceptor,
+  )
   uploadCitizenship(
     @CurrentUser() user: any,
     @Query('side') side: 'front' | 'back',
@@ -83,7 +90,10 @@ export class DriversController {
       },
     },
   })
-  @UseInterceptors(FileInterceptor('file', imageMulterConfig))
+  @UseInterceptors(
+    FileInterceptor('file', imageMulterConfig),
+    FileSignatureInterceptor,
+  )
   uploadLicense(
     @CurrentUser() user: any,
     @Query('side') side: 'front' | 'back',
@@ -104,7 +114,10 @@ export class DriversController {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
-  @UseInterceptors(FileInterceptor('file', imageMulterConfig))
+  @UseInterceptors(
+    FileInterceptor('file', imageMulterConfig),
+    FileSignatureInterceptor,
+  )
   uploadSelfie(
     @CurrentUser() user: any,
     @UploadedFile() file: Express.Multer.File,
@@ -114,7 +127,9 @@ export class DriversController {
   @Get('dashboard')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Driver dashboard — earnings, trips, pending requests' })
+  @ApiOperation({
+    summary: 'Driver dashboard — earnings, trips, pending requests',
+  })
   getDashboard(@CurrentUser() user: any) {
     return this.driversService.getDashboard(user.id);
   }
@@ -122,14 +137,18 @@ export class DriversController {
   @Get('status')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Get driver verification status and document checklist' })
+  @ApiOperation({
+    summary: 'Get driver verification status and document checklist',
+  })
   getStatus(@CurrentUser() user: any) {
     return this.driversService.getStatus(user.id);
   }
 
   // No auth guard — public profile, viewable by passengers before booking
   @Get(':userId/profile')
-  @ApiOperation({ summary: 'Get public driver profile — visible to passengers' })
+  @ApiOperation({
+    summary: 'Get public driver profile — visible to passengers',
+  })
   @ApiParam({ name: 'userId', description: 'User ID of the driver' })
   getPublicProfile(@Param('userId') userId: string) {
     return this.driversService.getPublicProfile(userId);
@@ -154,7 +173,9 @@ export class DriversController {
   @Patch('payouts/:id/cancel')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Cancel own pending payout; funds return to wallet' })
+  @ApiOperation({
+    summary: 'Cancel own pending payout; funds return to wallet',
+  })
   @ApiParam({ name: 'id', description: 'Payout ID' })
   cancelPayout(@CurrentUser() user: any, @Param('id') id: string) {
     return this.driversService.cancelPayout(user.id, id);
@@ -163,10 +184,12 @@ export class DriversController {
   @Put('location')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  async updateLocation(
-    @Req() req,
-    @Body() dto: { lat: number; lng: number },
-  ) {
-    return this.driversService.updateLocation(req.user.id, dto.lat, dto.lng);
+  async updateLocation(@Req() req, @Body() dto: UpdateLocationDto) {
+    return this.driversService.updateLocation(
+      req.user.id,
+      dto.lat,
+      dto.lng,
+      dto.isMock ?? false,
+    );
   }
 }

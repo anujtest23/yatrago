@@ -269,6 +269,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               : RouteNames.notifications,
                         ),
                       ),
+                      _SettingsTile(
+                        icon: Icons.devices_rounded,
+                        iconColor: AppColors.primary,
+                        title: 'Active Devices',
+                        onTap: () => context.push(RouteNames.deviceSessions),
+                      ),
                     ],
                   ),
 

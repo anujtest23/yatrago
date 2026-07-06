@@ -44,6 +44,22 @@ export class SafetyService {
       };
     }
 
+    // A referenced booking must actually involve the caller — otherwise a
+    // stray/forged id pollutes the safety team's incident context.
+    if (dto.bookingId) {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: dto.bookingId },
+        include: { ride: { include: { driver: true } } },
+      });
+      const isParticipant =
+        booking &&
+        (booking.passengerId === userId ||
+          booking.ride.driver.userId === userId);
+      if (!isParticipant) {
+        throw new ForbiddenException('You are not part of this booking');
+      }
+    }
+
     const alert = await this.prisma.sosAlert.create({
       data: {
         userId,

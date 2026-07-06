@@ -78,7 +78,9 @@ export class TripsService {
       where: { id: dto.vehicleId },
     });
     if (!vehicle || vehicle.driverId !== driver.id) {
-      throw new ForbiddenException('Vehicle not found or does not belong to you');
+      throw new ForbiddenException(
+        'Vehicle not found or does not belong to you',
+      );
     }
 
     // Vehicle must be admin-approved (isActive) to be used for rides
@@ -267,9 +269,7 @@ export class TripsService {
 
     // Can only edit published trips
     if (trip.status !== 'published') {
-      throw new BadRequestException(
-        'Only published trips can be edited',
-      );
+      throw new BadRequestException('Only published trips can be edited');
     }
 
     // Same departure-window rules as trip creation
@@ -280,9 +280,7 @@ export class TripsService {
       );
       const maxDepartureDays = await this.appConfig.get('max_departure_days');
 
-      if (
-        newDeparture < new Date(Date.now() + minDepartureMinutes * 60_000)
-      ) {
+      if (newDeparture < new Date(Date.now() + minDepartureMinutes * 60_000)) {
         throw new BadRequestException(
           `Departure must be at least ${minDepartureMinutes} minutes from now`,
         );
@@ -320,9 +318,12 @@ export class TripsService {
         ...(dto.departureAt && { departureAt: new Date(dto.departureAt) }),
         ...(dto.totalSeats && {
           totalSeats: dto.totalSeats,
-          availableSeats: dto.totalSeats - (trip.totalSeats - trip.availableSeats),
+          availableSeats:
+            dto.totalSeats - (trip.totalSeats - trip.availableSeats),
         }),
-        ...(dto.pricePerSeat !== undefined && { pricePerSeat: dto.pricePerSeat }),
+        ...(dto.pricePerSeat !== undefined && {
+          pricePerSeat: dto.pricePerSeat,
+        }),
         ...(dto.womenOnly !== undefined && { womenOnly: dto.womenOnly }),
         ...(dto.smokingPref && { smokingPref: dto.smokingPref as any }),
         ...(dto.luggagePref && { luggagePref: dto.luggagePref as any }),
@@ -459,13 +460,18 @@ export class TripsService {
       );
     }
 
-    await this.prisma.ride.update({
-      where: { id: tripId },
+    // Conditional flip: a concurrent duplicate request finds count 0 and
+    // fails instead of re-running start side effects.
+    const flipped = await this.prisma.ride.updateMany({
+      where: { id: tripId, status: 'published' },
       data: {
         status: 'in_progress',
         startedAt: new Date(),
       },
     });
+    if (flipped.count === 0) {
+      throw new BadRequestException('Trip already started or not startable');
+    }
 
     // Notify all confirmed passengers
     const bookings = await this.prisma.booking.findMany({
@@ -487,7 +493,11 @@ export class TripsService {
       ),
     );
 
-    return { message: 'Trip started successfully', tripId, status: 'in_progress' };
+    return {
+      message: 'Trip started successfully',
+      tripId,
+      status: 'in_progress',
+    };
   }
 
   // ── PATCH /trips/:id/complete ────────────────────────────────
@@ -502,14 +512,18 @@ export class TripsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      // Mark trip completed
-      await tx.ride.update({
-        where: { id: tripId },
+      // Conditional flip inside the transaction: a concurrent duplicate
+      // completion aborts here, so commission can never be charged twice.
+      const flipped = await tx.ride.updateMany({
+        where: { id: tripId, status: 'in_progress' },
         data: {
           status: 'completed',
           completedAt: new Date(),
         },
       });
+      if (flipped.count === 0) {
+        throw new BadRequestException('Trip already completed');
+      }
 
       // Mark all confirmed bookings as completed
       await tx.booking.updateMany({
@@ -590,7 +604,8 @@ export class TripsService {
       await this.prisma.notification.create({
         data: {
           userId,
-          type: commissionStatus === 'owed' ? 'wallet_low' : 'commission_charged',
+          type:
+            commissionStatus === 'owed' ? 'wallet_low' : 'commission_charged',
           title:
             commissionStatus === 'owed'
               ? 'Wallet Balance Too Low'
@@ -649,7 +664,7 @@ export class TripsService {
       totalEarnings: earningsResult._sum.totalAmount ?? 0,
     };
   }
-async getDriverLocation(tripId: string) {
+  async getDriverLocation(tripId: string) {
     const trip = await this.prisma.ride.findUnique({
       where: { id: tripId },
       include: {

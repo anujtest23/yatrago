@@ -2,7 +2,10 @@ import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateReportDto {
-  @ApiProperty({ example: 'user-uuid-here', description: 'User being reported' })
+  @ApiProperty({
+    example: 'user-uuid-here',
+    description: 'User being reported',
+  })
   @IsUUID()
   reportedId: string;
 
@@ -16,7 +19,9 @@ export class CreateReportDto {
   @MaxLength(100)
   reason: string;
 
-  @ApiPropertyOptional({ example: 'Driver was speeding on the Prithvi Highway.' })
+  @ApiPropertyOptional({
+    example: 'Driver was speeding on the Prithvi Highway.',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(1000)

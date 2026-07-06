@@ -8,6 +8,7 @@ import {
   Body,
   Query,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,6 +20,7 @@ import {
 import { AdminService } from './admin.service';
 import { RejectDriverDto } from './dto/reject-driver.dto';
 import { RejectPayoutDto } from './dto/reject-payout.dto';
+import { RejectTopUpDto } from './dto/reject-topup.dto';
 import { UpdateConfigDto } from './dto/update-config.dto';
 import { RejectVehicleDto } from './dto/reject-vehicle.dto';
 import { OverrideRidePriceDto } from './dto/override-ride-price.dto';
@@ -30,11 +32,13 @@ import { UpdateAdminRoleDto } from './dto/update-admin-role.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
 import { SuperAdminGuard } from './guards/super-admin.guard';
+import { AdminIpGuard } from './guards/admin-ip.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, AdminGuard)
+// Order matters: authenticate, then network allowlist, then role.
+@UseGuards(JwtAuthGuard, AdminIpGuard, AdminGuard)
 @Controller('admin')
 export class AdminController {
   constructor(private adminService: AdminService) {}
@@ -55,11 +59,7 @@ export class AdminController {
     @Query('limit') limit = '20',
     @Query('search') search?: string,
   ) {
-    return this.adminService.getUsers(
-      parseInt(page),
-      parseInt(limit),
-      search,
-    );
+    return this.adminService.getUsers(parseInt(page), parseInt(limit), search);
   }
 
   @Get('drivers')
@@ -97,11 +97,7 @@ export class AdminController {
     @Query('limit') limit = '20',
     @Query('status') status?: string,
   ) {
-    return this.adminService.getTrips(
-      parseInt(page),
-      parseInt(limit),
-      status,
-    );
+    return this.adminService.getTrips(parseInt(page), parseInt(limit), status);
   }
 
   @Get('bookings')
@@ -169,7 +165,9 @@ export class AdminController {
   }
 
   @Patch('payouts/:id/reject')
-  @ApiOperation({ summary: 'Reject a pending payout and refund the driver wallet' })
+  @ApiOperation({
+    summary: 'Reject a pending payout and refund the driver wallet',
+  })
   @ApiParam({ name: 'id', description: 'Payout ID' })
   rejectPayout(
     @CurrentUser() admin: any,
@@ -241,10 +239,55 @@ export class AdminController {
   @ApiParam({ name: 'userId' })
   creditWallet(
     @CurrentUser() admin: any,
-    @Param('userId') userId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
     @Body() dto: CreditWalletDto,
   ) {
-    return this.adminService.creditWallet(admin.id, userId, dto);
+    return this.adminService.creditWallet(admin.id, admin.role, userId, dto);
+  }
+
+  @Get('fraud/flagged')
+  @ApiOperation({ summary: 'List accounts with elevated fraud scores' })
+  getFlaggedUsers() {
+    return this.adminService.getFlaggedUsers();
+  }
+
+  @Get('fraud/:userId/events')
+  @ApiOperation({ summary: 'Fraud event history for a user' })
+  @ApiParam({ name: 'userId' })
+  getFraudEvents(@Param('userId', ParseUUIDPipe) userId: string) {
+    return this.adminService.getFraudEvents(userId);
+  }
+
+  @Get('topup-requests')
+  @ApiOperation({ summary: 'List wallet top-up requests' })
+  getTopUpRequests(@Query('status') status?: string) {
+    const allowed = ['pending', 'approved', 'rejected'] as const;
+    return this.adminService.getTopUpRequests(
+      allowed.includes(status as (typeof allowed)[number])
+        ? (status as (typeof allowed)[number])
+        : undefined,
+    );
+  }
+
+  @Patch('topup-requests/:id/approve')
+  @ApiOperation({ summary: 'Approve a top-up request and credit the wallet' })
+  @ApiParam({ name: 'id' })
+  approveTopUpRequest(
+    @CurrentUser() admin: any,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.adminService.approveTopUpRequest(admin.id, id);
+  }
+
+  @Patch('topup-requests/:id/reject')
+  @ApiOperation({ summary: 'Reject a top-up request' })
+  @ApiParam({ name: 'id' })
+  rejectTopUpRequest(
+    @CurrentUser() admin: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectTopUpDto,
+  ) {
+    return this.adminService.rejectTopUpRequest(admin.id, id, dto.note);
   }
 
   @Patch('rides/:id/cancel')
@@ -317,7 +360,9 @@ export class AdminController {
   }
 
   @Patch('ratings/:id/hide')
-  @ApiOperation({ summary: 'Hide a rating (excluded from averages and listings)' })
+  @ApiOperation({
+    summary: 'Hide a rating (excluded from averages and listings)',
+  })
   @ApiParam({ name: 'id', description: 'Rating ID' })
   hideRating(
     @CurrentUser() admin: any,
@@ -344,7 +389,9 @@ export class AdminController {
 
   @Post('admins')
   @UseGuards(SuperAdminGuard)
-  @ApiOperation({ summary: 'Grant admin access to a user by phone (super admin only)' })
+  @ApiOperation({
+    summary: 'Grant admin access to a user by phone (super admin only)',
+  })
   addAdmin(@CurrentUser() admin: any, @Body() dto: CreateAdminDto) {
     return this.adminService.addAdmin(admin.id, dto);
   }

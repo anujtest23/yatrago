@@ -32,6 +32,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { to: '/trips', label: 'Trips', icon: 'M4 12h16M12 4l8 8-8 8' },
       { to: '/bookings', label: 'Bookings', icon: 'M5 4h14v16l-7-3-7 3z' },
       { to: '/payouts', label: 'Payouts', icon: 'M12 1v22M17 5H9a4 4 0 000 8h6a4 4 0 010 8H6' },
+      { to: '/topups', label: 'Wallet Top-Ups', icon: 'M3 10h18M3 6h18v12H3zM7 15h4' },
     ],
   },
   {
@@ -39,6 +40,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { to: '/sos', label: 'SOS Alerts', icon: 'M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z' },
       { to: '/reports', label: 'Reports', icon: 'M4 4h16v12H5l-1 4z' },
+      { to: '/fraud', label: 'Fraud Monitor', icon: 'M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4zM12 8v4M12 16h.01' },
     ],
   },
   {
@@ -46,6 +48,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { to: '/admins', label: 'Admins', icon: 'M16 14a4 4 0 10-8 0M12 7a3 3 0 100 6 3 3 0 000-6zM20 8v6M23 11h-6', superOnly: true },
       { to: '/config', label: 'Settings', icon: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 00-1.7-1L14.5 3h-5l-.4 2.6a7 7 0 00-1.7 1l-2.3-1-2 3.4L5 11a7 7 0 000 2l-2 1.5 2 3.4 2.3-1a7 7 0 001.7 1l.4 2.6h5l.4-2.6a7 7 0 001.7-1l2.3 1 2-3.4-2-1.5a7 7 0 00.1-1z' },
+      { to: '/security', label: 'Security (MFA)', icon: 'M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6l7-4zM9 12l2 2 4-4' },
       { to: '/audit-logs', label: 'Audit Logs', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h6' },
     ],
   },

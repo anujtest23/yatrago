@@ -26,36 +26,54 @@ export class SearchTripsDto {
   @IsDateString()
   date?: string;
 
-  @ApiPropertyOptional({ example: 27.7172, description: 'Origin latitude for proximity search' })
+  @ApiPropertyOptional({
+    example: 27.7172,
+    description: 'Origin latitude for proximity search',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   originLat?: number;
 
-  @ApiPropertyOptional({ example: 85.324, description: 'Origin longitude for proximity search' })
+  @ApiPropertyOptional({
+    example: 85.324,
+    description: 'Origin longitude for proximity search',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   originLng?: number;
 
-  @ApiPropertyOptional({ example: 28.2096, description: 'Destination latitude for proximity search' })
+  @ApiPropertyOptional({
+    example: 28.2096,
+    description: 'Destination latitude for proximity search',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   destLat?: number;
 
-  @ApiPropertyOptional({ example: 83.9856, description: 'Destination longitude for proximity search' })
+  @ApiPropertyOptional({
+    example: 83.9856,
+    description: 'Destination longitude for proximity search',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   destLng?: number;
 
-  @ApiPropertyOptional({ example: 'Kathmandu', description: 'Origin city for same-city fallback matching' })
+  @ApiPropertyOptional({
+    example: 'Kathmandu',
+    description: 'Origin city for same-city fallback matching',
+  })
   @IsOptional()
   @IsString()
   originCity?: string;
 
-  @ApiPropertyOptional({ example: 'Pokhara', description: 'Destination city for same-city fallback matching' })
+  @ApiPropertyOptional({
+    example: 'Pokhara',
+    description: 'Destination city for same-city fallback matching',
+  })
   @IsOptional()
   @IsString()
   destCity?: string;
@@ -73,7 +91,16 @@ export class SearchTripsDto {
   @IsBoolean()
   womenOnly?: boolean;
 
-  @ApiPropertyOptional({ example: 'price_asc', enum: ['price_asc', 'price_desc', 'departure_asc', 'departure_desc', 'rating'] })
+  @ApiPropertyOptional({
+    example: 'price_asc',
+    enum: [
+      'price_asc',
+      'price_desc',
+      'departure_asc',
+      'departure_desc',
+      'rating',
+    ],
+  })
   @IsOptional()
   @IsString()
   sortBy?: string;

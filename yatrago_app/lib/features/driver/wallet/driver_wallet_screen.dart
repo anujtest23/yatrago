@@ -136,7 +136,10 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('NPR ${amount.toStringAsFixed(0)} added to wallet'),
+          content: Text(
+            'Top-up request of NPR ${amount.toStringAsFixed(0)} submitted. '
+            'Balance updates after verification.',
+          ),
           backgroundColor: AppColors.success,
         ),
       );

@@ -75,10 +75,9 @@ export class UsersService {
   async updateProfilePhoto(userId: string, file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file provided');
 
-    // For MVP we store the file locally and serve it statically
-    // Later this will upload to Cloudflare R2
-    const filename = `${userId}-${Date.now()}-${file.originalname}`;
-    const photoUrl = `/uploads/${filename}`;
+    // file.filename is the server-generated UUID name multer actually wrote
+    // to disk — never derive the URL from the client-supplied originalname.
+    const photoUrl = `/uploads/${file.filename}`;
 
     const user = await this.prisma.user.update({
       where: { id: userId },
@@ -86,7 +85,10 @@ export class UsersService {
       select: { id: true, profilePhotoUrl: true },
     });
 
-    return { message: 'Profile photo updated', profilePhotoUrl: user.profilePhotoUrl };
+    return {
+      message: 'Profile photo updated',
+      profilePhotoUrl: user.profilePhotoUrl,
+    };
   }
 
   // ── PATCH /users/me/mode ────────────────────────────────────
@@ -176,6 +178,52 @@ export class UsersService {
     return {
       message: 'Notification settings updated',
       settings: merged,
+    };
+  }
+
+  // ── GET /users/me/export ────────────────────────────────────
+  // GDPR-style data portability: everything we hold about the caller,
+  // scoped strictly to their own id (no other user's data leaks in).
+  async exportData(userId: string) {
+    const [user, bookings, ratingsGiven, reports, sessions, wallet] =
+      await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            phoneNumber: true,
+            fullName: true,
+            gender: true,
+            dateOfBirth: true,
+            language: true,
+            role: true,
+            createdAt: true,
+            driverProfile: true,
+          },
+        }),
+        this.prisma.booking.findMany({ where: { passengerId: userId } }),
+        this.prisma.rating.findMany({ where: { raterId: userId } }),
+        this.prisma.userReport.findMany({ where: { reporterId: userId } }),
+        this.prisma.authSession.findMany({
+          where: { userId },
+          select: { deviceInfo: true, ipAddress: true, createdAt: true },
+        }),
+        this.prisma.wallet.findUnique({
+          where: { userId },
+          include: { transactions: true },
+        }),
+      ]);
+
+    if (!user) throw new NotFoundException('User not found');
+
+    return {
+      exportedAt: new Date().toISOString(),
+      profile: user,
+      bookings,
+      ratingsGiven,
+      reports,
+      sessions,
+      wallet,
     };
   }
 

@@ -1,4 +1,10 @@
-import { IsIn, IsNumber, IsPositive, IsString, MaxLength } from 'class-validator';
+import {
+  IsIn,
+  IsNumber,
+  IsPositive,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class RequestPayoutDto {

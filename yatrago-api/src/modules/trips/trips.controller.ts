@@ -77,7 +77,9 @@ export class TripsController {
   }
 
   @Patch(':id/start')
-  @ApiOperation({ summary: 'Driver starts a trip once passengers are confirmed' })
+  @ApiOperation({
+    summary: 'Driver starts a trip once passengers are confirmed',
+  })
   @ApiParam({ name: 'id', description: 'Trip ID' })
   startTrip(@CurrentUser() user: any, @Param('id') id: string) {
     return this.tripsService.startTrip(user.id, id);
