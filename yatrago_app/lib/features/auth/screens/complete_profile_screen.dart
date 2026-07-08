@@ -1,6 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/route_names.dart';
@@ -82,12 +83,13 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 40),
-              const Text(
+              Text(
                 'Complete your profile',
-                style: TextStyle(
+                style: GoogleFonts.poppins(
                   fontSize: 26,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                   color: AppColors.textPrimary,
+                  letterSpacing: -0.5,
                 ),
               ),
               const SizedBox(height: 10),
@@ -211,11 +213,23 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
 
               const SizedBox(height: 48),
 
-              SizedBox(
-                width: double.infinity,
-                height: AppSpacing.buttonHeight,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _saveProfile,
+              GestureDetector(
+                onTap: _isLoading ? null : _saveProfile,
+                child: Container(
+                  width: double.infinity,
+                  height: AppSpacing.buttonHeight,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: AppColors.primaryGradient,
+                    borderRadius: BorderRadius.circular(AppSpacing.borderRadius),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withValues(alpha: 0.3),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
                   child: _isLoading
                       ? const SizedBox(
                           width: 22,
@@ -225,7 +239,14 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                             strokeWidth: 2,
                           ),
                         )
-                      : const Text('Continue'),
+                      : Text(
+                          'Continue',
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
                 ),
               ),
             ],

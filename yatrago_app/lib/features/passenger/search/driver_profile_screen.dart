@@ -1,5 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -46,32 +47,42 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.pop(),
+      backgroundColor: AppColors.bgWarm,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _Header(onBack: () => context.pop()),
+            Expanded(child: _buildBody()),
+          ],
         ),
-        title: const Text('Driver Profile'),
       ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            )
-          : _error != null
-          ? Center(child: Text(_error!))
-          : _profile == null
-          ? const Center(child: Text('Profile not found'))
-          : SingleChildScrollView(
-              child: Column(
-                children: [
-                  // Header
-                  Container(
-                    color: Colors.white,
-                    padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                    child: Column(
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
+    if (_error != null) return Center(child: Text(_error!));
+    if (_profile == null) {
+      return const Center(child: Text('Profile not found'));
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      child: Column(
+        children: [
+          // Header card
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.borderLight),
+            ),
+            padding: const EdgeInsets.all(AppSpacing.screenPadding),
+            child: Column(
                       children: [
                         CircleAvatar(
                           radius: 44,
@@ -139,7 +150,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   // Vehicle
                   if ((_profile!['vehicles'] as List?)?.isNotEmpty == true) ...[
                     Container(
-                      color: Colors.white,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.borderLight),
+                      ),
                       padding: const EdgeInsets.all(AppSpacing.screenPadding),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -191,8 +207,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                                     ),
                                   ],
                                 ),
-                              )
-                              .toList(),
+                              ),
                         ],
                       ),
                     ),
@@ -201,7 +216,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
 
                   // Reviews
                   Container(
-                    color: Colors.white,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.borderLight),
+                    ),
                     padding: const EdgeInsets.all(AppSpacing.screenPadding),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -225,16 +245,64 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                           )
                         else
                           ...(_profile!['recentReviews'] as List)
-                              .map((r) => _ReviewTile(review: r))
-                              .toList(),
+                              .map((r) => _ReviewTile(review: r)),
                       ],
                     ),
                   ),
 
-                  const SizedBox(height: 24),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+class _Header extends StatelessWidget {
+  final VoidCallback onBack;
+  const _Header({required this.onBack});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: onBack,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
                 ],
               ),
+              child: const Icon(
+                Icons.arrow_back_rounded,
+                color: AppColors.primary,
+                size: 22,
+              ),
             ),
+          ),
+          const SizedBox(width: 14),
+          Text(
+            'Driver Profile',
+            style: GoogleFonts.poppins(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+              letterSpacing: -0.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

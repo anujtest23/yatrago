@@ -179,7 +179,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
                 ),
                 if (_isLoadingRoute)
                   Container(
-                    color: Colors.white.withOpacity(0.6),
+                    color: Colors.white.withValues(alpha: 0.6),
                     child: const Center(
                       child: CircularProgressIndicator(
                         color: AppColors.primary,

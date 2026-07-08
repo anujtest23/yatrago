@@ -72,8 +72,11 @@ export class TripsController {
   }
   @Get(':id/location')
   @UseGuards(JwtAuthGuard)
-  async getDriverLocation(@Param('id') tripId: string) {
-    return this.tripsService.getDriverLocation(tripId);
+  async getDriverLocation(
+    @CurrentUser() user: any,
+    @Param('id') tripId: string,
+  ) {
+    return this.tripsService.getDriverLocation(user.id, tripId);
   }
 
   @Patch(':id/start')

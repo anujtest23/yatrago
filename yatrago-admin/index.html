@@ -3,6 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content-Security-Policy: reduce the blast radius of any XSS in the admin
+      console (its bearer tokens are the highest-value session class). Blocks
+      injected/external scripts, framing, and plugin content. Tighten further
+      with a server-set header (adds frame-ancestors) when a reverse proxy
+      fronts the SPA. See SECURITY_STATUS: admin token storage hardening.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'"
+    />
     <title>YatraGo Admin</title>
   </head>
   <body>

@@ -129,46 +129,59 @@ export class BookingsService {
 
     // Every booking starts as a request — the driver must accept it.
     // Seats are NOT reserved here; they decrement only on accept.
-    const booking = await this.prisma.booking.create({
-      data: {
-        rideId: dto.rideId,
-        passengerId: userId,
-        seatsBooked: dto.seatsBooked,
-        totalAmount,
-        status: 'pending',
-        pickupLat: dto.pickupLat,
-        pickupLng: dto.pickupLng,
-        pickupName: dto.pickupName,
-        dropLat: dto.dropLat,
-        dropLng: dto.dropLng,
-        dropName: dto.dropName,
-        couponCode: dto.couponCode,
-      },
-      include: {
-        ride: {
-          include: {
-            driver: {
-              include: {
-                user: {
-                  select: {
-                    fullName: true,
-                    phoneNumber: true,
+    let booking: any;
+    try {
+      booking = await this.prisma.booking.create({
+        data: {
+          rideId: dto.rideId,
+          passengerId: userId,
+          seatsBooked: dto.seatsBooked,
+          totalAmount,
+          status: 'pending',
+          pickupLat: dto.pickupLat,
+          pickupLng: dto.pickupLng,
+          pickupName: dto.pickupName,
+          dropLat: dto.dropLat,
+          dropLng: dto.dropLng,
+          dropName: dto.dropName,
+          couponCode: dto.couponCode,
+        },
+        include: {
+          ride: {
+            include: {
+              driver: {
+                include: {
+                  user: {
+                    select: {
+                      fullName: true,
+                      phoneNumber: true,
+                    },
                   },
                 },
               },
-            },
-            vehicle: {
-              select: {
-                make: true,
-                model: true,
-                color: true,
+              vehicle: {
+                select: {
+                  make: true,
+                  model: true,
+                  color: true,
+                },
               },
+              stops: { orderBy: { stopOrder: 'asc' } },
             },
-            stops: { orderBy: { stopOrder: 'asc' } },
           },
         },
-      },
-    });
+      });
+    } catch (error) {
+      // The (rideId, passengerId) unique constraint can trip when a prior
+      // booking for this ride exists in a terminal state. Return a clean 409
+      // rather than letting a raw Prisma P2002 surface as a 500.
+      if ((error as { code?: string }).code === 'P2002') {
+        throw new ConflictException(
+          'You already have a booking for this ride.',
+        );
+      }
+      throw error;
+    }
 
     // Notify the driver of the new booking request
     await this.notifications.createNotification(

@@ -393,7 +393,18 @@ export class AuthService {
     // Reuse of an already-rotated token = the token was stolen (either by
     // the attacker or the victim is replaying after the attacker rotated).
     // Fail secure: revoke the entire session family on both devices.
-    const stolenFamily = await this.redis.getBlacklistedFamily(tokenHash);
+    let stolenFamily: string | null;
+    try {
+      stolenFamily = await this.redis.getBlacklistedFamily(tokenHash);
+    } catch (error) {
+      // Fail closed: if the revocation blacklist is unreachable we cannot rule
+      // out that this token was already rotated/stolen, so refuse the refresh
+      // rather than proceed blind (CWE-636).
+      this.logger.error(
+        `Refresh blacklist lookup failed — denying refresh: ${(error as Error).message}`,
+      );
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
     if (stolenFamily) {
       const revoked = await this.prisma.authSession.findMany({
         where: { familyId: stolenFamily },

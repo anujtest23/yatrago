@@ -15,7 +15,6 @@ class RejectedScreen extends StatefulWidget {
 
 class _RejectedScreenState extends State<RejectedScreen> {
   String? _reason;
-  bool _isLoading = true;
 
   @override
   void initState() {
@@ -26,13 +25,11 @@ class _RejectedScreenState extends State<RejectedScreen> {
   Future<void> _loadReason() async {
     try {
       final response = await DioClient.instance.get('/drivers/status');
+      if (!mounted) return;
       setState(() {
         _reason = response.data['data']['rejectionReason'];
-        _isLoading = false;
       });
-    } catch (_) {
-      setState(() => _isLoading = false);
-    }
+    } catch (_) {}
   }
 
   @override

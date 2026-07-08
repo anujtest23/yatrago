@@ -26,46 +26,54 @@ class PassengerShell extends StatelessWidget {
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: Colors.white,
+          border: const Border(
+            top: BorderSide(color: Color(0xFFF1F5F9), width: 1),
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.07),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 12,
               offset: const Offset(0, -3),
             ),
           ],
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: SizedBox(
+            height: 64,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _NavItem(
-                  icon: Icons.home_rounded,
+                  activeIcon: Icons.home_rounded,
+                  inactiveIcon: Icons.home_outlined,
                   label: 'Home',
                   selected: index == 0,
                   onTap: () => context.go(RouteNames.passengerHome),
                 ),
                 _NavItem(
-                  icon: Icons.search_rounded,
+                  activeIcon: Icons.search_rounded,
+                  inactiveIcon: Icons.search_outlined,
                   label: 'Search',
                   selected: index == 1,
                   onTap: () => context.go(RouteNames.search),
                 ),
                 _NavItem(
-                  icon: Icons.confirmation_number_rounded,
+                  activeIcon: Icons.confirmation_number_rounded,
+                  inactiveIcon: Icons.confirmation_number_outlined,
                   label: 'My Rides',
                   selected: index == 2,
                   onTap: () => context.go(RouteNames.passengerMyRides),
                 ),
                 _NavItem(
-                  icon: Icons.notifications_rounded,
+                  activeIcon: Icons.notifications_rounded,
+                  inactiveIcon: Icons.notifications_outlined,
                   label: 'Alerts',
                   selected: index == 3,
                   onTap: () => context.go(RouteNames.notifications),
                 ),
                 _NavItem(
-                  icon: Icons.person_rounded,
+                  activeIcon: Icons.person_rounded,
+                  inactiveIcon: Icons.person_outline_rounded,
                   label: 'Profile',
                   selected: index == 4,
                   onTap: () => context.go(RouteNames.settings),
@@ -80,13 +88,15 @@ class PassengerShell extends StatelessWidget {
 }
 
 class _NavItem extends StatelessWidget {
-  final IconData icon;
+  final IconData activeIcon;
+  final IconData inactiveIcon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
   const _NavItem({
-    required this.icon,
+    required this.activeIcon,
+    required this.inactiveIcon,
     required this.label,
     required this.selected,
     required this.onTap,
@@ -94,34 +104,35 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = selected ? AppColors.primary : const Color(0xFF94A3B8);
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primaryLight : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 24,
-              color: selected ? AppColors.primary : AppColors.textTertiary,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(selected ? activeIcon : inactiveIcon, size: 24, color: color),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: color,
             ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                color: selected ? AppColors.primary : AppColors.textTertiary,
-              ),
+          ),
+          const SizedBox(height: 4),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            height: 3,
+            width: selected ? 24 : 0,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(2),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

@@ -66,6 +66,29 @@ function requireInProduction(name: string): string {
   return value;
 }
 
+/**
+ * A cryptographic secret that MUST be independent from the JWT secrets in
+ * production (key separation — one leaked key must not cascade to token
+ * forgery + PII decryption + URL forgery). In development it falls back to the
+ * refresh secret so local setup needs zero extra config.
+ *
+ * WARNING: ENCRYPTION_KEY must never be rotated without re-encrypting existing
+ * `enc:v1:` values — changing it makes stored ciphertext undecryptable.
+ */
+function requireIndependentSecret(name: string, minLength = 32): string {
+  const value = process.env[name];
+  if (isProduction) {
+    if (!value || value.length < minLength) {
+      throw new Error(
+        `FATAL: ${name} must be set and at least ${minLength} characters in production, independent from the JWT secrets.`,
+      );
+    }
+    return value;
+  }
+  if (value && value.length >= minLength) return value;
+  return requireSecret('JWT_REFRESH_SECRET');
+}
+
 export const appConfig = {
   port: parseInt(process.env.PORT ?? '3000', 10),
   nodeEnv,
@@ -89,17 +112,15 @@ export const appConfig = {
   adminRefreshTtlSeconds: 60 * 60 * 12,
   maxSessionsPerUser: 5,
 
-  // Pepper for hashing OTPs at rest in Redis. Falls back to the refresh
-  // secret so a bare Redis dump alone can never reveal live OTPs.
-  otpPepper: process.env.OTP_PEPPER ?? requireSecret('JWT_REFRESH_SECRET'),
+  // Pepper for hashing OTPs at rest in Redis. Independent from the JWT
+  // secrets in production (dev falls back to the refresh secret).
+  otpPepper: requireIndependentSecret('OTP_PEPPER'),
 
   // HMAC key for signed file URLs (private KYC documents).
-  fileSigningSecret:
-    process.env.FILE_SIGNING_SECRET ?? requireSecret('JWT_REFRESH_SECRET'),
+  fileSigningSecret: requireIndependentSecret('FILE_SIGNING_SECRET'),
 
   // AES-256-GCM key material for field-level PII encryption.
-  encryptionKey:
-    process.env.ENCRYPTION_KEY ?? requireSecret('JWT_REFRESH_SECRET'),
+  encryptionKey: requireIndependentSecret('ENCRYPTION_KEY'),
 
   // Optional CSV of IPs allowed to call /admin/* (empty = disabled).
   adminIpAllowlist: (process.env.ADMIN_IP_ALLOWLIST ?? '')

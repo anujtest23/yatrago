@@ -1,8 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/route_names.dart';
 import '../../../core/network/dio_client.dart';
 
@@ -60,57 +60,147 @@ class _DriverMyRidesScreenState extends State<DriverMyRidesScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.pop(),
-        ),
-        title: const Text('My Rides'),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: AppColors.driver,
-          unselectedLabelColor: AppColors.textTertiary,
-          indicatorColor: AppColors.driver,
-          tabs: [
-            Tab(text: 'Upcoming (${_upcoming.length})'),
-            Tab(text: 'Completed (${_completed.length})'),
-            Tab(text: 'Cancelled (${_cancelled.length})'),
-          ],
+      backgroundColor: const Color(0xFFF4F7F5),
+      floatingActionButton: GestureDetector(
+        onTap: () => context.push(RouteNames.postRide),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          decoration: BoxDecoration(
+            gradient: AppColors.driverGradient,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.driver.withValues(alpha: 0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.add_rounded, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Post Ride',
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.driver),
-            )
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _TripList(
-                  trips: _upcoming,
-                  emptyMessage:
-                      'No upcoming rides.\nPost a ride to get started.',
-                  onRefresh: _load,
-                ),
-                _TripList(
-                  trips: _completed,
-                  emptyMessage: 'No completed rides yet.',
-                  onRefresh: _load,
-                ),
-                _TripList(
-                  trips: _cancelled,
-                  emptyMessage: 'No cancelled rides.',
-                  onRefresh: _load,
-                ),
-              ],
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => context.pop(),
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.06),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: AppColors.driver,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Text(
+                    'My Rides',
+                    style: GoogleFonts.poppins(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                ],
+              ),
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push(RouteNames.postRide),
-        backgroundColor: AppColors.driver,
-        icon: const Icon(Icons.add_rounded, color: Colors.white),
-        label: const Text('Post Ride', style: TextStyle(color: Colors.white)),
+
+            // Pill tab bar (green)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFF1F5F9)),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                labelColor: Colors.white,
+                unselectedLabelColor: AppColors.textSecondary,
+                labelStyle: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+                unselectedLabelStyle: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+                indicator: BoxDecoration(
+                  gradient: AppColors.driverGradient,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                tabs: [
+                  Tab(text: 'Upcoming (${_upcoming.length})'),
+                  Tab(text: 'Completed (${_completed.length})'),
+                  Tab(text: 'Cancelled (${_cancelled.length})'),
+                ],
+              ),
+            ),
+
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: AppColors.driver),
+                    )
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _TripList(
+                          trips: _upcoming,
+                          emptyMessage:
+                              'No upcoming rides.\nPost a ride to get started.',
+                          onRefresh: _load,
+                        ),
+                        _TripList(
+                          trips: _completed,
+                          emptyMessage: 'No completed rides yet.',
+                          onRefresh: _load,
+                        ),
+                        _TripList(
+                          trips: _cancelled,
+                          emptyMessage: 'No cancelled rides.',
+                          onRefresh: _load,
+                        ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -145,7 +235,7 @@ class _TripList extends StatelessWidget {
               Text(
                 emptyMessage,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: GoogleFonts.inter(
                   fontSize: 15,
                   color: AppColors.textSecondary,
                   height: 1.5,
@@ -160,7 +250,8 @@ class _TripList extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView.builder(
-        padding: const EdgeInsets.all(AppSpacing.screenPadding),
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
         itemCount: trips.length,
         itemBuilder: (context, i) {
           final trip = trips[i];
@@ -175,12 +266,19 @@ class _TripList extends StatelessWidget {
               extra: trip['id'] as String,
             ),
             child: Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(AppSpacing.cardPadding),
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(AppSpacing.cardRadius),
-                border: Border.all(color: AppColors.borderLight),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFF1F5F9)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -192,33 +290,65 @@ class _TripList extends StatelessWidget {
                       if (departure != null)
                         Text(
                           DateFormat('d MMM yyyy').format(departure),
-                          style: const TextStyle(
+                          style: GoogleFonts.inter(
                             fontSize: 12,
                             color: AppColors.textTertiary,
                           ),
                         ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    '${trip['originName']} → ${trip['destName']}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          trip['originName'] ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 18,
+                          color: Color(0xFF94A3B8),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          trip['destName'] ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.end,
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  if (departure != null)
+                  if (departure != null) ...[
+                    const SizedBox(height: 4),
                     Text(
-                      DateFormat('h:mm a').format(departure),
-                      style: const TextStyle(
+                      DateFormat('EEEE • h:mm a').format(departure),
+                      style: GoogleFonts.inter(
                         fontSize: 13,
                         color: AppColors.textSecondary,
                       ),
                     ),
-                  const SizedBox(height: 10),
-                  const Divider(height: 1),
-                  const SizedBox(height: 10),
+                  ],
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+                  ),
                   Row(
                     children: [
                       const Icon(
@@ -229,7 +359,7 @@ class _TripList extends StatelessWidget {
                       const SizedBox(width: 6),
                       Text(
                         '${trip['availableSeats']} / ${trip['totalSeats']} seats',
-                        style: const TextStyle(
+                        style: GoogleFonts.inter(
                           fontSize: 13,
                           color: AppColors.textSecondary,
                         ),
@@ -237,9 +367,9 @@ class _TripList extends StatelessWidget {
                       const Spacer(),
                       Text(
                         'NPR ${(trip['pricePerSeat'] ?? 0).toStringAsFixed(0)}',
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
                           color: AppColors.driver,
                         ),
                       ),
@@ -279,14 +409,14 @@ class _StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         status.toUpperCase().replaceAll('_', ' '),
-        style: TextStyle(
+        style: GoogleFonts.inter(
           fontSize: 11,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
           color: color,
         ),
       ),

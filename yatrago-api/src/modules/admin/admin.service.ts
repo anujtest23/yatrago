@@ -863,14 +863,35 @@ export class AdminService {
     if (!user) throw new NotFoundException('User not found');
 
     // Dual control: large credits require a super_admin, so a single
-    // compromised sub-admin account can't move big money alone.
-    if (
-      dto.amount > appConfig.adminCreditSuperThreshold &&
-      adminRole !== 'super_admin'
-    ) {
-      throw new ForbiddenException(
-        `Credits above NPR ${appConfig.adminCreditSuperThreshold} require a super admin`,
-      );
+    // compromised sub-admin account can't move big money alone. The cap is
+    // enforced on a rolling 24h CUMULATIVE basis, not per-transaction —
+    // otherwise a sub-admin could split one large credit into many
+    // sub-threshold ones to evade the gate (CWE-840).
+    if (adminRole !== 'super_admin') {
+      const threshold = appConfig.adminCreditSuperThreshold;
+      if (dto.amount > threshold) {
+        throw new ForbiddenException(
+          `Credits above NPR ${threshold} require a super admin`,
+        );
+      }
+      const since = new Date(Date.now() - 24 * 3600_000);
+      const recent = await this.prisma.auditLog.findMany({
+        where: {
+          actorId: adminId,
+          action: 'wallet_credited',
+          createdAt: { gte: since },
+        },
+        select: { details: true },
+      });
+      const creditedLast24h = recent.reduce((sum, row) => {
+        const amt = (row.details as { amount?: unknown } | null)?.amount;
+        return sum + (typeof amt === 'number' ? amt : 0);
+      }, 0);
+      if (creditedLast24h + dto.amount > threshold) {
+        throw new ForbiddenException(
+          `Daily credit limit reached. Credits totalling more than NPR ${threshold} within 24 hours require a super admin.`,
+        );
+      }
     }
 
     await this.wallet.credit(

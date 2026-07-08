@@ -1,10 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/route_names.dart';
-import '../../../core/widgets/primary_button.dart';
 import '../models/ride_model.dart';
 
 class SelectSeatsScreen extends StatefulWidget {
@@ -29,250 +28,510 @@ class _SelectSeatsScreenState extends State<SelectSeatsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canMinus = _seats > 1;
+    final canPlus = _seats < _ride.availableSeats;
+
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.pop(),
-        ),
-        title: const Text('Select Seats'),
-      ),
+      backgroundColor: AppColors.bgWarm,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.screenPadding),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Route summary
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryLight,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
+        bottom: false,
+        child: Column(
+          children: [
+            _buildHeader(context),
+            const SizedBox(height: 12),
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                child: Column(
                   children: [
-                    const Icon(
-                      Icons.directions_car_rounded,
-                      color: AppColors.primary,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        '${_ride.originName} → ${_ride.destName}',
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      DateFormat('d MMM').format(_ride.departureAt),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.primary,
-                      ),
-                    ),
+                    _buildRouteSummary(),
+                    const SizedBox(height: 14),
+                    _buildSeatStepper(canMinus, canPlus),
+                    const SizedBox(height: 14),
+                    _buildPricingCard(),
                   ],
                 ),
               ),
+            ),
+            _buildBottomBar(context),
+          ],
+        ),
+      ),
+    );
+  }
 
-              const SizedBox(height: 32),
-
-              // Price per seat
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Price per seat',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
-                    ),
+  // ════════════════════════════════════════════════════
+  // HEADER — Back button + title + decorative divider
+  // ════════════════════════════════════════════════════
+  Widget _buildHeader(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          GestureDetector(
+            onTap: () => context.pop(),
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
                   ),
-                  Text(
-                    'NPR ${_ride.pricePerSeat.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                ],
+              ),
+              child: const Icon(
+                Icons.arrow_back_rounded,
+                color: AppColors.textPrimary,
+                size: 22,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Select Seats',
+                  style: GoogleFonts.inter(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _decorativeDivider(),
+              ],
+            ),
+          ),
+          const SizedBox(width: 44),
+        ],
+      ),
+    );
+  }
+
+  Widget _decorativeDivider() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(width: 32, height: 1.2, color: AppColors.primaryDark),
+        const SizedBox(width: 8),
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            Transform.rotate(
+              angle: 45 * 3.1415927 / 180,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.primaryDark, width: 2.0),
+                ),
+              ),
+            ),
+            Container(
+              width: 4,
+              height: 4,
+              decoration: const BoxDecoration(
+                color: AppColors.primaryDark,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(width: 8),
+        Container(width: 32, height: 1.2, color: AppColors.primaryDark),
+      ],
+    );
+  }
+
+  // ════════════════════════════════════════════════════
+  // ROUTE SUMMARY — pickup / drop-off + date
+  // ════════════════════════════════════════════════════
+  Widget _buildRouteSummary() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0).withValues(alpha: 0.6),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Pickup
+          Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFF10B981), width: 2),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _ride.originName,
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 5),
+            child: Column(
+              children: List.generate(
+                3,
+                (_) => Container(
+                  width: 2,
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(vertical: 2),
+                  color: const Color(0xFFCBD5E1),
+                ),
+              ),
+            ),
+          ),
+          // Drop-off
+          Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  border: Border.all(color: AppColors.primary, width: 2),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _ride.destName,
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(
+                Icons.calendar_today_rounded,
+                size: 14,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                DateFormat('EEE, d MMM • h:mm a').format(_ride.departureAt),
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════
+  // SEAT STEPPER — animated ± counter
+  // ════════════════════════════════════════════════════
+  Widget _buildSeatStepper(bool canMinus, bool canPlus) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0).withValues(alpha: 0.6),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.arrow_right_alt_rounded,
+                color: AppColors.primary,
+                size: 18,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Select number of seats',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF1E293B),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Transform.scale(
+                scaleX: -1,
+                child: const Icon(
+                  Icons.arrow_right_alt_rounded,
+                  color: AppColors.primary,
+                  size: 18,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _stepButton(
+                icon: Icons.remove_rounded,
+                enabled: canMinus,
+                onTap: () {
+                  if (canMinus) setState(() => _seats--);
+                },
+              ),
+              const SizedBox(width: 24),
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8F9FA),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                alignment: Alignment.center,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 150),
+                  transitionBuilder: (child, animation) => ScaleTransition(
+                    scale: animation,
+                    child: FadeTransition(opacity: animation, child: child),
+                  ),
+                  child: Text(
+                    '$_seats',
+                    key: ValueKey<int>(_seats),
+                    style: GoogleFonts.inter(
+                      fontSize: 34,
+                      fontWeight: FontWeight.w900,
                       color: AppColors.textPrimary,
                     ),
                   ),
-                ],
+                ),
               ),
-
-              const SizedBox(height: 8),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Available seats',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  Text(
-                    '${_ride.availableSeats} seats',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 24),
+              _stepButton(
+                icon: Icons.add_rounded,
+                enabled: canPlus,
+                onTap: () {
+                  if (canPlus) setState(() => _seats++);
+                },
               ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Maximum ${_ride.availableSeats} seats',
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF64748B),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-              const SizedBox(height: 40),
+  Widget _stepButton({
+    required IconData icon,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          border: Border.all(
+            color: enabled ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0),
+            width: 1.5,
+          ),
+        ),
+        child: Icon(
+          icon,
+          color: enabled ? AppColors.primary : const Color(0xFFCBD5E1),
+          size: 24,
+        ),
+      ),
+    );
+  }
 
-              // Seat counter
-              const Text(
-                'How many seats?',
-                style: TextStyle(
-                  fontSize: 16,
+  // ════════════════════════════════════════════════════
+  // PRICING CARD — per-seat × count = total (NPR)
+  // ════════════════════════════════════════════════════
+  Widget _buildPricingCard() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0).withValues(alpha: 0.6),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'NPR ${_ride.pricePerSeat.toStringAsFixed(0)} × $_seats ${_seats == 1 ? 'seat' : 'seats'}',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              Text(
+                'NPR ${_total.toStringAsFixed(0)}',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: AppColors.textPrimary,
                 ),
               ),
-              const SizedBox(height: 20),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Minus
-                  GestureDetector(
-                    onTap: () {
-                      if (_seats > 1) setState(() => _seats--);
-                    },
-                    child: Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: _seats > 1
-                            ? AppColors.primaryLight
-                            : AppColors.borderLight,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: _seats > 1
-                              ? AppColors.primary
-                              : AppColors.border,
-                        ),
-                      ),
-                      child: Icon(
-                        Icons.remove_rounded,
-                        size: 24,
-                        color: _seats > 1
-                            ? AppColors.primary
-                            : AppColors.textTertiary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 32),
-                  // Count
-                  Column(
-                    children: [
-                      Text(
-                        '$_seats',
-                        style: const TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      Text(
-                        'seat${_seats > 1 ? 's' : ''}',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 32),
-                  // Plus
-                  GestureDetector(
-                    onTap: () {
-                      if (_seats < _ride.availableSeats) {
-                        setState(() => _seats++);
-                      }
-                    },
-                    child: Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: _seats < _ride.availableSeats
-                            ? AppColors.primaryLight
-                            : AppColors.borderLight,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: _seats < _ride.availableSeats
-                              ? AppColors.primary
-                              : AppColors.border,
-                        ),
-                      ),
-                      child: Icon(
-                        Icons.add_rounded,
-                        size: 24,
-                        color: _seats < _ride.availableSeats
-                            ? AppColors.primary
-                            : AppColors.textTertiary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const Spacer(),
-
-              // Total
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.borderLight,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total amount',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    Text(
-                      'NPR ${_total.toStringAsFixed(0)}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ],
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 14),
+            child: Divider(color: Color(0xFFE2E8F0), height: 1, thickness: 0.8),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Total amount',
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
                 ),
               ),
-
-              const SizedBox(height: 16),
-
-              PrimaryButton(
-                text: 'Continue',
-                onPressed: () => context.push(
-                  RouteNames.bookingSummary,
-                  extra: {
-                    'ride': widget.ride,
-                    'seats': _seats,
-                    'total': _total,
-                  },
+              Text(
+                'NPR ${_total.toStringAsFixed(0)}',
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.primary,
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════
+  // BOTTOM BAR — Continue CTA
+  // ════════════════════════════════════════════════════
+  Widget _buildBottomBar(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        12,
+        20,
+        16 + MediaQuery.of(context).padding.bottom,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.bgWarm,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: GestureDetector(
+        onTap: () => context.push(
+          RouteNames.bookingSummary,
+          extra: {
+            'ride': widget.ride,
+            'seats': _seats,
+            'total': _total,
+          },
+        ),
+        child: Container(
+          width: double.infinity,
+          height: 54,
+          decoration: BoxDecoration(
+            gradient: AppColors.primaryGradient,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            'Continue',
+            style: GoogleFonts.inter(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              letterSpacing: 0.3,
+            ),
           ),
         ),
       ),

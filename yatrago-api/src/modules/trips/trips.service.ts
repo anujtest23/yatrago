@@ -664,7 +664,7 @@ export class TripsService {
       totalEarnings: earningsResult._sum.totalAmount ?? 0,
     };
   }
-  async getDriverLocation(tripId: string) {
+  async getDriverLocation(userId: string, tripId: string) {
     const trip = await this.prisma.ride.findUnique({
       where: { id: tripId },
       include: {
@@ -673,6 +673,29 @@ export class TripsService {
     });
 
     if (!trip) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    // Object-level authorization: a driver's live coordinates are the most
+    // safety-sensitive data in the system. Only the trip's own driver or a
+    // passenger with a live booking on this ride may read them — never any
+    // authenticated user who guesses/enumerates a tripId (BOLA / CWE-639).
+    const isDriver = trip.driver?.userId === userId;
+    let isParticipant = isDriver;
+    if (!isParticipant) {
+      const booking = await this.prisma.booking.findFirst({
+        where: {
+          rideId: tripId,
+          passengerId: userId,
+          status: { in: ['confirmed', 'completed'] },
+        },
+        select: { id: true },
+      });
+      isParticipant = booking !== null;
+    }
+    if (!isParticipant) {
+      // Same 404 the caller would get for a non-existent trip — no oracle
+      // revealing that the trip exists but belongs to someone else.
       throw new NotFoundException('Trip not found');
     }
 

@@ -22,62 +22,56 @@ class DriverShell extends StatelessWidget {
     final index = _currentIndex(context);
 
     return Scaffold(
+      extendBody: true,
       body: child,
       bottomNavigationBar: Container(
+        margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+        height: 72,
         decoration: BoxDecoration(
           color: Colors.white,
+          borderRadius: BorderRadius.circular(36),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.07),
-              blurRadius: 12,
-              offset: const Offset(0, -3),
+              color: AppColors.driver.withValues(alpha: 0.18),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _NavItem(
-                  icon: Icons.dashboard_rounded,
-                  label: 'Dashboard',
-                  selected: index == 0,
-                  color: AppColors.driver,
-                  onTap: () => context.go(RouteNames.driverDashboard),
-                ),
-                _NavItem(
-                  icon: Icons.add_road_rounded,
-                  label: 'Post Ride',
-                  selected: index == 1,
-                  color: AppColors.driver,
-                  onTap: () => context.go(RouteNames.postRide),
-                ),
-                _NavItem(
-                  icon: Icons.list_alt_rounded,
-                  label: 'My Rides',
-                  selected: index == 2,
-                  color: AppColors.driver,
-                  onTap: () => context.go(RouteNames.driverMyRides),
-                ),
-                _NavItem(
-                  icon: Icons.inbox_rounded,
-                  label: 'Bookings',
-                  selected: index == 3,
-                  color: AppColors.driver,
-                  onTap: () => context.go(RouteNames.incomingBookings),
-                ),
-                _NavItem(
-                  icon: Icons.person_rounded,
-                  label: 'Profile',
-                  selected: index == 4,
-                  color: AppColors.driver,
-                  onTap: () => context.go(RouteNames.driverSettings),
-                ),
-              ],
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _NavItem(
+              icon: Icons.dashboard_rounded,
+              label: 'Dashboard',
+              selected: index == 0,
+              onTap: () => context.go(RouteNames.driverDashboard),
             ),
-          ),
+            _NavItem(
+              icon: Icons.add_road_rounded,
+              label: 'Post Ride',
+              selected: index == 1,
+              onTap: () => context.go(RouteNames.postRide),
+            ),
+            _NavItem(
+              icon: Icons.list_alt_rounded,
+              label: 'My Rides',
+              selected: index == 2,
+              onTap: () => context.go(RouteNames.driverMyRides),
+            ),
+            _NavItem(
+              icon: Icons.inbox_rounded,
+              label: 'Bookings',
+              selected: index == 3,
+              onTap: () => context.go(RouteNames.incomingBookings),
+            ),
+            _NavItem(
+              icon: Icons.person_rounded,
+              label: 'Profile',
+              selected: index == 4,
+              onTap: () => context.go(RouteNames.driverSettings),
+            ),
+          ],
         ),
       ),
     );
@@ -88,14 +82,12 @@ class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
-  final Color color;
   final VoidCallback onTap;
 
   const _NavItem({
     required this.icon,
     required this.label,
     required this.selected,
-    required this.color,
     required this.onTap,
   });
 
@@ -103,30 +95,46 @@ class _NavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.symmetric(horizontal: selected ? 16 : 12),
+        height: 48,
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.12) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+          gradient: selected
+              ? AppColors.driverGradient
+              : null,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AppColors.driver.withValues(alpha: 0.35),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
-        child: Column(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               icon,
-              size: 24,
-              color: selected ? color : AppColors.textTertiary,
+              size: 22,
+              color: selected ? Colors.white : AppColors.textTertiary,
             ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                color: selected ? color : AppColors.textTertiary,
+            if (selected) ...[
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

@@ -8,8 +8,8 @@ class AppSpacing {
 
   static const double screenPadding = 20;
   static const double cardPadding = 16;
-  static const double inputHeight = 52;
-  static const double buttonHeight = 52;
-  static const double borderRadius = 12;
-  static const double cardRadius = 16;
+  static const double inputHeight = 56;
+  static const double buttonHeight = 54;
+  static const double borderRadius = 14;
+  static const double cardRadius = 20;
 }

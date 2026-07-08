@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
@@ -356,9 +357,14 @@ class _RouteStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Where are you going?',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+            letterSpacing: -0.5,
+          ),
         ),
         const SizedBox(height: 24),
         _CityPicker(
@@ -541,9 +547,14 @@ class _AddStopsStepState extends State<_AddStopsStep> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Add stops along the way',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+            letterSpacing: -0.5,
+          ),
         ),
         const SizedBox(height: 6),
         const Text(
@@ -767,9 +778,14 @@ class _DateTimeStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'When are you departing?',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+            letterSpacing: -0.5,
+          ),
         ),
         const SizedBox(height: 24),
         GestureDetector(
@@ -912,9 +928,14 @@ class _VehicleStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Select your vehicle',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+            letterSpacing: -0.5,
+          ),
         ),
         const SizedBox(height: 24),
         if (vehicles.isEmpty)
@@ -1016,9 +1037,14 @@ class _PriceSeatsStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Price and seats',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+            letterSpacing: -0.5,
+          ),
         ),
         const SizedBox(height: 24),
         const Text(
@@ -1136,9 +1162,14 @@ class _PreferencesStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Ride preferences',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+            letterSpacing: -0.5,
+          ),
         ),
         const SizedBox(height: 24),
         Row(
@@ -1324,9 +1355,14 @@ class _PreviewStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Preview your ride',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+            letterSpacing: -0.5,
+          ),
         ),
         const SizedBox(height: 6),
         const Text(

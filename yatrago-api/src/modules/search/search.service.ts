@@ -1,12 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { SearchTripsDto } from './search.dto';
 
 const EARTH_RADIUS_KM = 6371;
 const PROXIMITY_RADIUS_KM = 30;
+// Hard ceiling on the pre-filter fetch for proximity search. The endpoint is
+// unauthenticated, so an unbounded findMany is a resource-exhaustion vector
+// (CWE-770). Ride volume per region is small; this bound is generous.
+const PROXIMITY_FETCH_CAP: number = 500;
 
 @Injectable()
 export class SearchService {
+  private readonly logger = new Logger(SearchService.name);
+
   constructor(private prisma: PrismaService) {}
 
   // ── Haversine distance between two lat/lng points, in km ──────
@@ -119,7 +125,9 @@ export class SearchService {
         : this.prisma.ride.count({ where }),
       this.prisma.ride.findMany({
         where,
-        ...(hasProximityFilter ? {} : { skip, take: limit }),
+        ...(hasProximityFilter
+          ? { take: PROXIMITY_FETCH_CAP }
+          : { skip, take: limit }),
         orderBy,
         include: {
           driver: {
@@ -175,6 +183,13 @@ export class SearchService {
     let rides: typeof allRides;
     let finalTotal = total;
     const matchTypeById = new Map<string, 'nearby' | 'city'>();
+
+    if (hasProximityFilter && allRides.length === PROXIMITY_FETCH_CAP) {
+      // Coverage was bounded — surface it rather than silently dropping rides.
+      this.logger.warn(
+        `Proximity search hit the ${PROXIMITY_FETCH_CAP}-row fetch cap; some matches may be omitted.`,
+      );
+    }
 
     if (hasProximityFilter) {
       const originDist = (ride: (typeof allRides)[number]) =>

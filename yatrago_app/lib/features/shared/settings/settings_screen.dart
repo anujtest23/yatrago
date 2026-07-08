@@ -1,7 +1,7 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/route_names.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/network/dio_client.dart';
@@ -18,6 +18,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, dynamic>? _user;
   bool _isLoading = true;
   String _activeMode = 'passenger';
+
+  bool get _isDriver => _activeMode == 'driver';
 
   @override
   void initState() {
@@ -143,113 +145,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.pop(),
-        ),
-        title: const Text('Settings'),
-      ),
+      backgroundColor: AppColors.bgWarm,
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.primary),
             )
           : SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
               child: Column(
                 children: [
+                  _buildHero(context),
                   const SizedBox(height: 16),
-
-                  // Profile card
-                  GestureDetector(
-                    onTap: () => context.push(RouteNames.editProfile),
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.screenPadding,
-                      ),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.borderLight),
-                      ),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 30,
-                            backgroundColor: AppColors.primaryLight,
-                            backgroundImage: _user?['profilePhotoUrl'] != null
-                                ? NetworkImage(_user!['profilePhotoUrl'])
-                                : null,
-                            child: _user?['profilePhotoUrl'] == null
-                                ? const Icon(
-                                    Icons.person_rounded,
-                                    size: 32,
-                                    color: AppColors.primary,
-                                  )
-                                : null,
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _user?['fullName'] ?? 'Your Name',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
-                                Text(
-                                  _user?['phoneNumber'] ?? '',
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(
-                            Icons.chevron_right_rounded,
-                            color: AppColors.textTertiary,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
+                  _buildSwitchModeBanner(),
                   const SizedBox(height: 20),
-
-                  // Mode switch
-                  _Section(
-                    title: 'Mode',
-                    children: [
-                      _SettingsTile(
-                        icon: _activeMode == 'passenger'
-                            ? Icons.drive_eta_rounded
-                            : Icons.person_rounded,
-                        iconColor: _activeMode == 'passenger'
-                            ? AppColors.driver
-                            : AppColors.primary,
-                        title: _activeMode == 'passenger'
-                            ? 'Switch to Driver Mode'
-                            : 'Switch to Passenger Mode',
-                        subtitle: _activeMode == 'passenger'
-                            ? 'Start earning by posting rides'
-                            : 'Search and book rides',
-                        onTap: _switchMode,
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Account
                   _Section(
                     title: 'Account',
                     children: [
@@ -264,7 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         iconColor: AppColors.primary,
                         title: 'Notifications',
                         onTap: () => context.push(
-                          _activeMode == 'driver'
+                          _isDriver
                               ? RouteNames.driverNotifications
                               : RouteNames.notifications,
                         ),
@@ -274,13 +182,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         iconColor: AppColors.primary,
                         title: 'Active Devices',
                         onTap: () => context.push(RouteNames.deviceSessions),
+                        showDivider: false,
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 16),
-
-                  // Danger zone
                   _Section(
                     title: 'Account Actions',
                     children: [
@@ -300,13 +206,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 40),
-
-                  // App version
-                  const Text(
+                  const SizedBox(height: 32),
+                  Text(
                     'YatraGo v1.0.0',
-                    style: TextStyle(
+                    style: GoogleFonts.inter(
                       fontSize: 12,
                       color: AppColors.textTertiary,
                     ),
@@ -315,6 +218,212 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════
+  // HERO — mode-aware banner (red passenger / green driver)
+  // ════════════════════════════════════════════════════
+  Widget _buildHero(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(
+        20,
+        MediaQuery.of(context).padding.top + 16,
+        20,
+        28,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: _isDriver
+              ? const [AppColors.driver, Color(0xFF0F3D14)]
+              : const [AppColors.primary, AppColors.primaryDark],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => context.pop(),
+                child: const Icon(
+                  Icons.arrow_back_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Settings',
+                style: GoogleFonts.poppins(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          GestureDetector(
+            onTap: () => context.push(RouteNames.editProfile),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 32,
+                  backgroundColor: Colors.white.withValues(alpha: 0.25),
+                  backgroundImage: _user?['profilePhotoUrl'] != null
+                      ? NetworkImage(_user!['profilePhotoUrl'])
+                      : null,
+                  child: _user?['profilePhotoUrl'] == null
+                      ? const Icon(
+                          Icons.person_rounded,
+                          size: 34,
+                          color: Colors.white,
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _user?['fullName'] ?? 'Your Name',
+                        style: GoogleFonts.poppins(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        _user?['phoneNumber'] ?? '',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _isDriver ? 'DRIVER MODE' : 'PASSENGER MODE',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Colors.white70,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════
+  // SWITCH MODE BANNER — prominent card
+  // ════════════════════════════════════════════════════
+  Widget _buildSwitchModeBanner() {
+    final targetColor = _isDriver ? AppColors.primary : AppColors.driver;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: GestureDetector(
+        onTap: _switchMode,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: targetColor.withValues(alpha: 0.4)),
+            boxShadow: [
+              BoxShadow(
+                color: targetColor.withValues(alpha: 0.12),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: targetColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  _isDriver ? Icons.person_rounded : Icons.drive_eta_rounded,
+                  color: targetColor,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _isDriver
+                          ? 'Switch to Passenger Mode'
+                          : 'Switch to Driver Mode',
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _isDriver
+                          ? 'Search and book rides'
+                          : 'Start earning by posting rides',
+                      style: GoogleFonts.inter(
+                        fontSize: 12.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: targetColor,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.swap_horiz_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -331,28 +440,30 @@ class _Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(
-            left: AppSpacing.screenPadding,
-            bottom: 8,
-          ),
+          padding: const EdgeInsets.only(left: 20, bottom: 8),
           child: Text(
             title,
-            style: const TextStyle(
+            style: GoogleFonts.inter(
               fontSize: 12,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
               color: AppColors.textTertiary,
               letterSpacing: 0.5,
             ),
           ),
         ),
         Container(
-          margin: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.screenPadding,
-          ),
+          margin: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.borderLight),
+            border: Border.all(color: const Color(0xFFF1F5F9)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
           child: Column(children: children),
         ),
@@ -365,7 +476,6 @@ class _SettingsTile extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final String title;
-  final String? subtitle;
   final Color? titleColor;
   final VoidCallback onTap;
   final bool showDivider;
@@ -374,7 +484,6 @@ class _SettingsTile extends StatelessWidget {
     required this.icon,
     required this.iconColor,
     required this.title,
-    this.subtitle,
     this.titleColor,
     required this.onTap,
     this.showDivider = true,
@@ -390,28 +499,19 @@ class _SettingsTile extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.1),
+              color: iconColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, size: 20, color: iconColor),
           ),
           title: Text(
             title,
-            style: TextStyle(
+            style: GoogleFonts.inter(
               fontSize: 14,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
               color: titleColor ?? AppColors.textPrimary,
             ),
           ),
-          subtitle: subtitle != null
-              ? Text(
-                  subtitle!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                )
-              : null,
           trailing: const Icon(
             Icons.chevron_right_rounded,
             color: AppColors.textTertiary,
@@ -422,7 +522,8 @@ class _SettingsTile extends StatelessWidget {
             vertical: 4,
           ),
         ),
-        if (showDivider) const Divider(height: 1, indent: 68, endIndent: 16),
+        if (showDivider)
+          const Divider(height: 1, indent: 68, endIndent: 16),
       ],
     );
   }

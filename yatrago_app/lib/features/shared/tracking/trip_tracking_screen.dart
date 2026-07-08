@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart' as loc;
@@ -183,7 +184,7 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
                     Polyline(
                       points: _routePoints,
                       strokeWidth: 4,
-                      color: AppColors.primary.withOpacity(0.6),
+                      color: AppColors.primary.withValues(alpha: 0.6),
                     ),
                   ],
                 ),
@@ -221,7 +222,7 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
                           border: Border.all(color: Colors.white, width: 3),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.25),
+                              color: Colors.black.withValues(alpha: 0.25),
                               blurRadius: 6,
                             ),
                           ],
@@ -239,7 +240,7 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
           ),
           if (_isLoadingRoute)
             Container(
-              color: Colors.white.withOpacity(0.5),
+              color: Colors.white.withValues(alpha: 0.5),
               child: const Center(
                 child: CircularProgressIndicator(color: AppColors.primary),
               ),
@@ -249,17 +250,27 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
-                  Container(
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.arrow_back,
-                        color: AppColors.textPrimary,
+                  GestureDetector(
+                    onTap: () => context.pop(),
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.1),
+                            blurRadius: 6,
+                          ),
+                        ],
                       ),
-                      onPressed: () => context.pop(),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: AppColors.primary,
+                        size: 22,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -274,7 +285,7 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
+                            color: Colors.black.withValues(alpha: 0.1),
                             blurRadius: 6,
                           ),
                         ],
@@ -323,9 +334,18 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
             alignment: Alignment.bottomCenter,
             child: Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 16,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
@@ -336,9 +356,10 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
                       children: [
                         Text(
                           widget.originName,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),

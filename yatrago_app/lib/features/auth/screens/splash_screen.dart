@@ -1,6 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/router/route_names.dart';
 import '../../../core/storage/secure_storage.dart';
@@ -103,22 +104,23 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 ),
                 const SizedBox(height: 24),
                 // App name
-                const Text(
+                Text(
                   'YatraGo',
-                  style: TextStyle(
-                    fontSize: 36,
+                  style: GoogleFonts.poppins(
+                    fontSize: 40,
                     fontWeight: FontWeight.w800,
                     color: Colors.white,
-                    letterSpacing: 0.5,
+                    letterSpacing: -0.5,
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Nepal\'s Ride-Sharing Platform',
-                  style: TextStyle(
+                Text(
+                  'Share the Journey',
+                  style: GoogleFonts.inter(
                     fontSize: 14,
                     color: Colors.white70,
-                    fontWeight: FontWeight.w400,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.5,
                   ),
                 ),
               ],

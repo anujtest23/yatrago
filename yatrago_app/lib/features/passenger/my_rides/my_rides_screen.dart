@@ -1,8 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/route_names.dart';
 import '../data/booking_api.dart';
 import '../models/booking_model.dart';
@@ -58,55 +58,121 @@ class _MyRidesScreenState extends State<MyRidesScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.pop(),
-        ),
-        title: const Text('My Rides'),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: AppColors.primary,
-          unselectedLabelColor: AppColors.textTertiary,
-          indicatorColor: AppColors.primary,
-          indicatorWeight: 2,
-          tabs: [
-            Tab(text: 'Upcoming (${_upcoming.length})'),
-            Tab(text: 'Completed (${_completed.length})'),
-            Tab(text: 'Cancelled (${_cancelled.length})'),
+      backgroundColor: AppColors.bgWarm,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => context.pop(),
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.06),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: AppColors.textPrimary,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Text(
+                    'My Rides',
+                    style: GoogleFonts.poppins(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Pill tab bar
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFF1F5F9)),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                labelColor: Colors.white,
+                unselectedLabelColor: AppColors.textSecondary,
+                labelStyle: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+                unselectedLabelStyle: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+                indicator: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                tabs: [
+                  Tab(text: 'Upcoming (${_upcoming.length})'),
+                  Tab(text: 'Completed (${_completed.length})'),
+                  Tab(text: 'Cancelled (${_cancelled.length})'),
+                ],
+              ),
+            ),
+
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child:
+                          CircularProgressIndicator(color: AppColors.primary),
+                    )
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _BookingList(
+                          bookings: _upcoming,
+                          emptyMessage: 'No upcoming rides',
+                          emptyIcon: Icons.directions_car_outlined,
+                          onRefresh: _loadBookings,
+                        ),
+                        _BookingList(
+                          bookings: _completed,
+                          emptyMessage: 'No completed rides yet',
+                          emptyIcon: Icons.check_circle_outline_rounded,
+                          onRefresh: _loadBookings,
+                        ),
+                        _BookingList(
+                          bookings: _cancelled,
+                          emptyMessage: 'No cancelled rides',
+                          emptyIcon: Icons.cancel_outlined,
+                          onRefresh: _loadBookings,
+                        ),
+                      ],
+                    ),
+            ),
           ],
         ),
       ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            )
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _BookingList(
-                  bookings: _upcoming,
-                  emptyMessage: 'No upcoming rides',
-                  emptyIcon: Icons.directions_car_outlined,
-                  onRefresh: _loadBookings,
-                ),
-                _BookingList(
-                  bookings: _completed,
-                  emptyMessage: 'No completed rides yet',
-                  emptyIcon: Icons.check_circle_outline_rounded,
-                  onRefresh: _loadBookings,
-                ),
-                _BookingList(
-                  bookings: _cancelled,
-                  emptyMessage: 'No cancelled rides',
-                  emptyIcon: Icons.cancel_outlined,
-                  onRefresh: _loadBookings,
-                ),
-              ],
-            ),
     );
   }
 }
@@ -135,7 +201,7 @@ class _BookingList extends StatelessWidget {
             const SizedBox(height: 14),
             Text(
               emptyMessage,
-              style: const TextStyle(
+              style: GoogleFonts.inter(
                 fontSize: 16,
                 color: AppColors.textSecondary,
               ),
@@ -153,7 +219,8 @@ class _BookingList extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView.builder(
-        padding: const EdgeInsets.all(AppSpacing.screenPadding),
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         itemCount: bookings.length,
         itemBuilder: (context, i) => _BookingCard(booking: bookings[i]),
       ),
@@ -195,12 +262,19 @@ class _BookingCard extends StatelessWidget {
       onTap: () =>
           context.push(RouteNames.passengerRideDetail, extra: booking.id),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(AppSpacing.cardPadding),
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(AppSpacing.cardRadius),
-          border: Border.all(color: AppColors.borderLight),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFF1F5F9)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -215,16 +289,16 @@ class _BookingCard extends StatelessWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: _statusColor.withOpacity(0.1),
+                    color: _statusColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     booking.status == 'pending'
                         ? 'AWAITING APPROVAL'
                         : booking.status.toUpperCase(),
-                    style: TextStyle(
+                    style: GoogleFonts.inter(
                       fontSize: 11,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                       color: _statusColor,
                     ),
                   ),
@@ -232,7 +306,7 @@ class _BookingCard extends StatelessWidget {
                 if (departure != null)
                   Text(
                     DateFormat('d MMM yyyy').format(departure),
-                    style: const TextStyle(
+                    style: GoogleFonts.inter(
                       fontSize: 12,
                       color: AppColors.textTertiary,
                     ),
@@ -240,32 +314,62 @@ class _BookingCard extends StatelessWidget {
               ],
             ),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
 
-            // Route
-            Text(
-              '${ride?['originName'] ?? ''} → ${ride?['destName'] ?? ''}',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
+            // Route with arrow
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    ride?['originName'] ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 18,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    ride?['destName'] ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.end,
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
             ),
 
             if (departure != null) ...[
               const SizedBox(height: 4),
               Text(
                 DateFormat('EEEE • h:mm a').format(departure),
-                style: const TextStyle(
+                style: GoogleFonts.inter(
                   fontSize: 13,
                   color: AppColors.textSecondary,
                 ),
               ),
             ],
 
-            const SizedBox(height: 12),
-            const Divider(height: 1),
-            const SizedBox(height: 12),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+            ),
 
             // Seats + amount
             Row(
@@ -278,7 +382,7 @@ class _BookingCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   '${booking.seatsBooked} seat${booking.seatsBooked > 1 ? 's' : ''}',
-                  style: const TextStyle(
+                  style: GoogleFonts.inter(
                     fontSize: 13,
                     color: AppColors.textSecondary,
                   ),
@@ -286,9 +390,9 @@ class _BookingCard extends StatelessWidget {
                 const Spacer(),
                 Text(
                   'NPR ${booking.totalAmount.toStringAsFixed(0)}',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
                     color: AppColors.primary,
                   ),
                 ),

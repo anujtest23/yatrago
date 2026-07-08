@@ -1,14 +1,12 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:dio/dio.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/route_names.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/network/api_exception.dart';
-import '../../../core/widgets/primary_button.dart';
-
 import '../../../core/widgets/route_map_widget.dart';
 
 class DriverRideDetailScreen extends StatefulWidget {
@@ -53,8 +51,21 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
           backgroundColor: AppColors.success,
         ),
       );
-      _load();
+      context.push(
+        RouteNames.tripTracking,
+        extra: {
+          'tripId': widget.tripId,
+          'isDriver': true,
+          'originLat': (_trip!['originLat'] ?? 0).toDouble(),
+          'originLng': (_trip!['originLng'] ?? 0).toDouble(),
+          'originName': _trip!['originName'] ?? '',
+          'destLat': (_trip!['destLat'] ?? 0).toDouble(),
+          'destLng': (_trip!['destLng'] ?? 0).toDouble(),
+          'destName': _trip!['destName'] ?? '',
+        },
+      );
     } on DioException catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(ApiException.fromDioError(e).message)),
       );
@@ -71,8 +82,13 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
       );
       final data = response.data['data'];
       if (!mounted) return;
-      context.pushReplacement(RouteNames.tripSummary, extra: data);
+      final enrichedData = {
+        ...data,
+        'tripId': widget.tripId, // guarantee it is always present
+      };
+      context.pushReplacement(RouteNames.tripSummary, extra: enrichedData);
     } on DioException catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(ApiException.fromDioError(e).message)),
       );
@@ -125,14 +141,22 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
+        backgroundColor: Color(0xFFF4F7F5),
         body: Center(child: CircularProgressIndicator(color: AppColors.driver)),
       );
     }
 
     if (_trip == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Ride Detail')),
-        body: const Center(child: Text('Trip not found')),
+        backgroundColor: const Color(0xFFF4F7F5),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(context, ''),
+              const Expanded(child: Center(child: Text('Trip not found'))),
+            ],
+          ),
+        ),
       );
     }
 
@@ -144,68 +168,52 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
     } catch (_) {}
 
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.pop(),
-        ),
-        title: const Text('Ride Detail'),
-        actions: [
-          if (status == 'published')
-            IconButton(
-              icon: const Icon(Icons.edit_rounded, color: AppColors.driver),
-              onPressed: () =>
-                  context.push(RouteNames.editRide, extra: widget.tripId),
-            ),
-        ],
-      ),
+      backgroundColor: const Color(0xFFF4F7F5),
       body: SafeArea(
         child: Column(
           children: [
+            _buildHeader(context, status),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 child: Column(
                   children: [
-                    // Route map
+                    // Real route map
                     Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
+                      decoration: _cardDecoration(),
+                      child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.borderLight),
-                      ),
-                      child: RouteMapWidget(
-                        originLat: (_trip!['originLat'] ?? 0).toDouble(),
-                        originLng: (_trip!['originLng'] ?? 0).toDouble(),
-                        originName: _trip!['originName'] ?? '',
-                        destLat: (_trip!['destLat'] ?? 0).toDouble(),
-                        destLng: (_trip!['destLng'] ?? 0).toDouble(),
-                        destName: _trip!['destName'] ?? '',
-                        stops: ((_trip!['stops'] as List?) ?? [])
-                            .map(
-                              (s) => RouteStop(
-                                lat: (s['lat'] ?? 0).toDouble(),
-                                lng: (s['lng'] ?? 0).toDouble(),
-                                name: s['locationName'] ?? '',
-                              ),
-                            )
-                            .toList(),
-                        height: 200,
+                        child: RouteMapWidget(
+                          originLat: (_trip!['originLat'] ?? 0).toDouble(),
+                          originLng: (_trip!['originLng'] ?? 0).toDouble(),
+                          originName: _trip!['originName'] ?? '',
+                          destLat: (_trip!['destLat'] ?? 0).toDouble(),
+                          destLng: (_trip!['destLng'] ?? 0).toDouble(),
+                          destName: _trip!['destName'] ?? '',
+                          stops: ((_trip!['stops'] as List?) ?? [])
+                              .map(
+                                (s) => RouteStop(
+                                  lat: (s['lat'] ?? 0).toDouble(),
+                                  lng: (s['lng'] ?? 0).toDouble(),
+                                  name: s['locationName'] ?? '',
+                                ),
+                              )
+                              .toList(),
+                          height: 200,
+                        ),
                       ),
                     ),
 
                     const SizedBox(height: 16),
 
-                    // Route card
+                    // Route + stats card
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: AppColors.driverLight,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: Column(
                         children: [
@@ -214,9 +222,9 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
                               Expanded(
                                 child: Text(
                                   '${_trip!['originName']} → ${_trip!['destName']}',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
                                     color: AppColors.driver,
                                   ),
                                 ),
@@ -235,10 +243,9 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
-                                  DateFormat(
-                                    'EEE, d MMM • h:mm a',
-                                  ).format(departure),
-                                  style: const TextStyle(
+                                  DateFormat('EEE, d MMM • h:mm a')
+                                      .format(departure),
+                                  style: GoogleFonts.inter(
                                     fontSize: 13,
                                     color: AppColors.driver,
                                   ),
@@ -246,7 +253,7 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
                               ],
                             ),
                           ],
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 14),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
@@ -275,28 +282,26 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
 
                     const SizedBox(height: 16),
 
-                    // Passengers
-                    if (bookings.isNotEmpty) ...[
+                    if (bookings.isNotEmpty)
                       Container(
                         padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.borderLight),
-                        ),
+                        decoration: _cardDecoration(),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'Passengers',
-                              style: TextStyle(
+                              style: GoogleFonts.inter(
                                 fontSize: 15,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF1E293B),
                               ),
                             ),
                             const SizedBox(height: 12),
                             ...bookings.map((b) {
-                              final p = b['passenger'] as Map<String, dynamic>?;
+                              final p =
+                                  b['passenger'] as Map<String, dynamic>?;
+                              final name = p?['fullName'] ?? 'Passenger';
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Row(
@@ -317,15 +322,15 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            p?['fullName'] ?? 'Passenger',
-                                            style: const TextStyle(
+                                            name,
+                                            style: GoogleFonts.inter(
                                               fontSize: 13,
-                                              fontWeight: FontWeight.w500,
+                                              fontWeight: FontWeight.w600,
                                             ),
                                           ),
                                           Text(
                                             '${b['seatsBooked']} seat${(b['seatsBooked'] ?? 1) > 1 ? 's' : ''} • ${(b['status'] ?? '').toUpperCase()}',
-                                            style: const TextStyle(
+                                            style: GoogleFonts.inter(
                                               fontSize: 11,
                                               color: AppColors.textSecondary,
                                             ),
@@ -338,8 +343,7 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
                                         RouteNames.contactPassenger,
                                         extra: {
                                           'bookingId': b['id'] as String,
-                                          'passengerName':
-                                              p?['fullName'] ?? 'Passenger',
+                                          'passengerName': name,
                                         },
                                       ),
                                       child: Container(
@@ -349,9 +353,8 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
                                         ),
                                         decoration: BoxDecoration(
                                           color: AppColors.primaryLight,
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
                                         ),
                                         child: const Row(
                                           mainAxisSize: MainAxisSize.min,
@@ -363,11 +366,11 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
                                             ),
                                             SizedBox(width: 4),
                                             Text(
-                                              'Chat',
+                                              'Contact',
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 color: AppColors.primary,
-                                                fontWeight: FontWeight.w500,
+                                                fontWeight: FontWeight.w600,
                                               ),
                                             ),
                                           ],
@@ -381,58 +384,186 @@ class _DriverRideDetailScreenState extends State<DriverRideDetailScreen> {
                           ],
                         ),
                       ),
-                    ],
                   ],
                 ),
               ),
             ),
 
-            // Action buttons
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (status == 'published') ...[
-                    PrimaryButton(
-                      text: 'Start Trip',
-                      isLoading: _isActing,
-                      backgroundColor: AppColors.driver,
-                      onPressed: _startTrip,
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(
-                          double.infinity,
-                          AppSpacing.buttonHeight,
-                        ),
-                        foregroundColor: AppColors.error,
-                        side: const BorderSide(color: AppColors.error),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppSpacing.borderRadius,
+            // Action bar
+            if (status == 'published' || status == 'in_progress')
+              Container(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  12,
+                  20,
+                  16 + MediaQuery.of(context).padding.bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (status == 'published') ...[
+                      _gradientButton(
+                        label: 'Start Trip',
+                        colors: const [AppColors.driver, Color(0xFF0F3D14)],
+                        onTap: _isActing ? null : _startTrip,
+                      ),
+                      const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: _cancelTrip,
+                        child: Container(
+                          width: double.infinity,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border:
+                                Border.all(color: AppColors.error, width: 1.4),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'Cancel Trip',
+                            style: GoogleFonts.inter(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.error,
+                            ),
                           ),
                         ),
                       ),
-                      onPressed: _cancelTrip,
-                      child: const Text('Cancel Trip'),
-                    ),
+                    ],
+                    if (status == 'in_progress')
+                      _gradientButton(
+                        label: 'Complete Trip',
+                        colors: const [
+                          AppColors.success,
+                          Color(0xFF0B5744),
+                        ],
+                        onTap: _isActing ? null : _completeTrip,
+                      ),
                   ],
-                  if (status == 'in_progress')
-                    PrimaryButton(
-                      text: 'Complete Trip',
-                      isLoading: _isActing,
-                      backgroundColor: AppColors.success,
-                      onPressed: _completeTrip,
-                    ),
-                ],
+                ),
               ),
-            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, String status) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => context.pop(),
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.arrow_back_rounded,
+                color: AppColors.driver,
+                size: 22,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Text(
+            'Ride Detail',
+            style: GoogleFonts.poppins(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const Spacer(),
+          if (status == 'published')
+            GestureDetector(
+              onTap: () =>
+                  context.push(RouteNames.editRide, extra: widget.tripId),
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.driverLight,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.edit_rounded,
+                  color: AppColors.driver,
+                  size: 20,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _gradientButton({
+    required String label,
+    required List<Color> colors,
+    required VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        height: 54,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: colors,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        alignment: Alignment.center,
+        child: _isActing
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              )
+            : Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+      ),
+    );
+  }
+
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: const Color(0xFFF1F5F9)),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.03),
+          blurRadius: 12,
+          offset: const Offset(0, 3),
+        ),
+      ],
     );
   }
 }
@@ -461,14 +592,14 @@ class _StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         status.toUpperCase().replaceAll('_', ' '),
-        style: TextStyle(
+        style: GoogleFonts.inter(
           fontSize: 11,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
           color: color,
         ),
       ),
@@ -491,15 +622,15 @@ class _Stat extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           value,
-          style: const TextStyle(
+          style: GoogleFonts.inter(
             fontSize: 14,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
             color: AppColors.driver,
           ),
         ),
         Text(
           label,
-          style: const TextStyle(fontSize: 11, color: AppColors.driver),
+          style: GoogleFonts.inter(fontSize: 11, color: AppColors.driver),
         ),
       ],
     );

@@ -1,5 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:dio/dio.dart';
 import '../../../core/constants/app_colors.dart';
@@ -83,25 +84,20 @@ class _EditRideScreenState extends State<EditRideScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.pop(),
-        ),
-        title: const Text('Edit Ride'),
-      ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.driver),
-            )
-          : SafeArea(
-              child: Column(
-                children: [
-                  Expanded(
-                    child: SingleChildScrollView(
+      backgroundColor: AppColors.bgWarm,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(onBack: () => context.pop()),
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: AppColors.driver),
+                    )
+                  : Column(
+                      children: [
+                        Expanded(
+                          child: SingleChildScrollView(
                       padding: const EdgeInsets.all(AppSpacing.screenPadding),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -267,19 +263,66 @@ class _EditRideScreenState extends State<EditRideScreen> {
                       ),
                     ),
                   ),
-                  Container(
-                    color: Colors.white,
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                    child: PrimaryButton(
-                      text: 'Save Changes',
-                      isLoading: _isSaving,
-                      backgroundColor: AppColors.driver,
-                      onPressed: _save,
+                        Container(
+                          color: Colors.white,
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                          child: PrimaryButton(
+                            text: 'Save Changes',
+                            isLoading: _isSaving,
+                            backgroundColor: AppColors.driver,
+                            onPressed: _save,
+                          ),
+                        ),
+                      ],
                     ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader({required VoidCallback onBack}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: onBack,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),
+              child: const Icon(
+                Icons.arrow_back_rounded,
+                color: AppColors.driver,
+                size: 22,
+              ),
             ),
+          ),
+          const SizedBox(width: 14),
+          Text(
+            'Edit Ride',
+            style: GoogleFonts.poppins(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+              letterSpacing: -0.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

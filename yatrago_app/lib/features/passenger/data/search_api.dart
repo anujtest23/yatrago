@@ -22,7 +22,7 @@ class SearchApi {
           .toList();
 
       return rides;
-    } on DioException catch (e) {
+    } on DioException {
       // If backend requires origin/dest, return empty gracefully
       return [];
     } catch (_) {

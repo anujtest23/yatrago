@@ -3,6 +3,7 @@ package com.yatrago.yatrago_app
 import android.os.Bundle
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
+import com.yatrago.yatrago_app.BuildConfig 
 
 class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
