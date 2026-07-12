@@ -28,6 +28,13 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             const SettingsDivider(),
             SettingsTile(
+              icon: Icons.location_on_outlined,
+              title: 'Location Permission',
+              subtitle: 'Why we use your location.',
+              onTap: () => context.push(RouteNames.locationPermission),
+            ),
+            const SettingsDivider(),
+            SettingsTile(
               icon: Icons.verified_user_outlined,
               title: 'How We Protect Your Data',
               subtitle: 'Security measures we follow.',

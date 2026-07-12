@@ -69,7 +69,7 @@ class DriverShell extends StatelessWidget {
             ),
             _NavItem(
               icon: Icons.chat_bubble_rounded,
-              label: 'Messages',
+              label: 'Chat',
               selected: index == 4,
               badgeListenable: ChatUnread.instance,
               onTap: () => context.go(RouteNames.driverMessages),

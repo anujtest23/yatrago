@@ -52,6 +52,7 @@ import '../../features/shared/settings/pages/faq_screen.dart';
 import '../../features/shared/settings/pages/privacy_policy_screen.dart';
 import '../../features/shared/settings/pages/terms_conditions_screen.dart';
 import '../../features/shared/settings/pages/info_collect_screen.dart';
+import '../../features/shared/settings/pages/location_permission_screen.dart';
 import '../../features/shared/settings/pages/privacy_detail_screen.dart';
 import '../../features/shared/settings/pages/full_privacy_policy_screen.dart';
 import '../../features/shared/settings/pages/terms_detail_screen.dart';
@@ -414,6 +415,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: RouteNames.infoCollect,
       builder: (_, __) => const InfoCollectScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.locationPermission,
+      builder: (_, __) => const LocationPermissionScreen(),
     ),
     GoRoute(
       path: RouteNames.privacyDetail,

@@ -59,6 +59,8 @@ class RouteNames {
   // Privacy / Terms static sub-pages (leaf detail screens reached from the
   // Privacy Policy and Terms & Conditions hubs). All informational — no backend.
   static const String infoCollect = '/settings/privacy-policy/info-collect';
+  static const String locationPermission =
+      '/settings/privacy-policy/location-permission';
   static const String privacyDetail = '/settings/privacy-policy/detail';
   static const String fullPrivacyPolicy = '/settings/privacy-policy/full';
   static const String termsDetail = '/settings/terms/detail';

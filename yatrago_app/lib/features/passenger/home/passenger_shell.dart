@@ -69,7 +69,7 @@ class PassengerShell extends StatelessWidget {
                 _NavItem(
                   activeIcon: Icons.chat_bubble_rounded,
                   inactiveIcon: Icons.chat_bubble_outline_rounded,
-                  label: 'Messages',
+                  label: 'Chat',
                   selected: index == 3,
                   badgeListenable: ChatUnread.instance,
                   onTap: () => context.go(RouteNames.passengerMessages),
