@@ -1,16 +1,23 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:io';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_spacing.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/network/api_exception.dart';
-import '../../../core/widgets/primary_button.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../auth/data/auth_api.dart';
+import 'widgets/settings_ui.dart';
 
+/// Edit Profile — Yatri visual language over the existing YatraGo wiring.
+///
+/// Only fields the backend actually persists are editable: full name, gender
+/// and date of birth (all accepted by `PATCH /users/me`) plus the photo
+/// (`POST /users/profile-photo`). Phone is shown read-only (it is the account
+/// identity and cannot be changed here). Yatri's Location / About Me fields are
+/// intentionally omitted — the API has no columns for them.
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
 
@@ -21,11 +28,22 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _nameController = TextEditingController();
   String? _selectedGender;
+  DateTime? _dob;
+  String _phone = '';
   String? _profilePhotoUrl;
   File? _newPhoto;
   bool _isLoading = false;
   bool _isSaving = false;
   String? _error;
+  String _activeMode = 'passenger';
+
+  bool get _isDriver => _activeMode == 'driver';
+  Color get _accent => _isDriver ? AppColors.driver : AppColors.primary;
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
 
   final List<String> _genders = [
     'male',
@@ -56,11 +74,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() => _isLoading = true);
     try {
       final user = await AuthApi.getMe();
+      final mode = await SecureStorage.getActiveMode();
       if (!mounted) return;
       setState(() {
         _nameController.text = user['fullName'] ?? '';
         _selectedGender = user['gender'];
+        _phone = user['phoneNumber'] ?? '';
+        final dobStr = user['dateOfBirth'] as String?;
+        _dob = (dobStr != null && dobStr.isNotEmpty)
+            ? DateTime.tryParse(dobStr)
+            : null;
         _profilePhotoUrl = user['profilePhotoUrl'];
+        _activeMode = mode ?? (user['activeMode'] as String? ?? 'passenger');
         _isLoading = false;
       });
     } catch (_) {
@@ -68,16 +93,193 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  Future<void> _pickPhoto() async {
+  Future<void> _pickPhoto(ImageSource source) async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
-      source: ImageSource.gallery,
+      source: source,
       imageQuality: 80,
       maxWidth: 800,
     );
     if (picked != null) {
       setState(() => _newPhoto = File(picked.path));
     }
+  }
+
+  void _showPhotoOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Text(
+                  'Change Profile Photo',
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _photoOption(
+                  icon: Icons.camera_alt_outlined,
+                  label: 'Take Photo',
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _pickPhoto(ImageSource.camera);
+                  },
+                ),
+                const Divider(color: Color(0xFFF1F5F9), height: 1),
+                _photoOption(
+                  icon: Icons.photo_library_outlined,
+                  label: 'Choose from Gallery',
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _pickPhoto(ImageSource.gallery);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _photoOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: _accent.withValues(alpha: 0.08),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: _accent),
+      ),
+      title: Text(
+        label,
+        style: GoogleFonts.inter(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: const Color(0xFF0F172A),
+        ),
+      ),
+      onTap: onTap,
+    );
+  }
+
+  Future<void> _selectDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dob ?? DateTime(2000),
+      firstDate: DateTime(1950),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: _accent,
+              onPrimary: Colors.white,
+              onSurface: const Color(0xFF0F172A),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() => _dob = picked);
+    }
+  }
+
+  void _showGenderPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Text(
+                  'Select Gender',
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ..._genders.map((g) {
+                  final selected = _selectedGender == g;
+                  return ListTile(
+                    leading: Icon(
+                      g == 'male'
+                          ? Icons.male_rounded
+                          : g == 'female'
+                              ? Icons.female_rounded
+                              : Icons.transgender_rounded,
+                      color: selected ? _accent : const Color(0xFF64748B),
+                    ),
+                    title: Text(
+                      _genderLabels[g]!,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                        color:
+                            selected ? _accent : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    trailing: selected
+                        ? Icon(Icons.check_circle_rounded, color: _accent)
+                        : null,
+                    onTap: () {
+                      setState(() => _selectedGender = g);
+                      Navigator.pop(sheetContext);
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _save() async {
@@ -92,7 +294,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     });
 
     try {
-      // Upload photo if new one selected
+      // Upload photo if a new one was selected
       if (_newPhoto != null) {
         final formData = FormData.fromMap({
           'file': await MultipartFile.fromFile(
@@ -107,12 +309,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         );
       }
 
-      // Update profile
+      // Update profile fields the API persists.
       await DioClient.instance.patch(
         '/users/me',
         data: {
           'fullName': _nameController.text.trim(),
           if (_selectedGender != null) 'gender': _selectedGender,
+          if (_dob != null)
+            'dateOfBirth':
+                '${_dob!.year.toString().padLeft(4, '0')}-${_dob!.month.toString().padLeft(2, '0')}-${_dob!.day.toString().padLeft(2, '0')}',
         },
       );
 
@@ -134,167 +339,52 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bgWarm,
+      backgroundColor: const Color(0xFFFEFEFE),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
-            _Header(onBack: () => context.pop()),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+              child: SettingsPageHeader(title: 'Edit Profile', accent: _accent),
+            ),
             Expanded(
               child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: AppColors.primary,
-                      ),
-                    )
+                  ? Center(child: CircularProgressIndicator(color: _accent))
                   : SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                      physics: const BouncingScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        12,
+                        16,
+                        MediaQuery.of(context).padding.bottom + 24,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          _buildProfilePhoto(),
                           const SizedBox(height: 8),
-
-                    // Photo picker
-                    Center(
-                      child: GestureDetector(
-                        onTap: _pickPhoto,
-                        child: Stack(
-                          children: [
-                            CircleAvatar(
-                              radius: 48,
-                              backgroundColor: AppColors.primaryLight,
-                              backgroundImage: _newPhoto != null
-                                  ? FileImage(_newPhoto!)
-                                  : (_profilePhotoUrl != null
-                                        ? NetworkImage(_profilePhotoUrl!)
-                                              as ImageProvider
-                                        : null),
-                              child:
-                                  (_newPhoto == null &&
-                                      _profilePhotoUrl == null)
-                                  ? const Icon(
-                                      Icons.person_rounded,
-                                      size: 52,
-                                      color: AppColors.primary,
-                                    )
-                                  : null,
-                            ),
-                            Positioned(
-                              bottom: 0,
-                              right: 0,
-                              child: Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  color: AppColors.primary,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: Colors.white,
-                                    width: 2,
-                                  ),
-                                ),
-                                child: const Icon(
-                                  Icons.camera_alt_rounded,
-                                  size: 16,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    const Center(
-                      child: Text(
-                        'Tap to change photo',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textTertiary,
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
-
-                    // Full name
-                    const Text(
-                      'Full Name',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _nameController,
-                      textCapitalization: TextCapitalization.words,
-                      onChanged: (_) => setState(() => _error = null),
-                      decoration: InputDecoration(
-                        hintText: 'Enter your full name',
-                        errorText: _error,
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // Gender
-                    const Text(
-                      'Gender',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: _genders.map((g) {
-                        final selected = _selectedGender == g;
-                        return GestureDetector(
-                          onTap: () => setState(() => _selectedGender = g),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? AppColors.primary
-                                  : Colors.white,
-                              border: Border.all(
-                                color: selected
-                                    ? AppColors.primary
-                                    : AppColors.border,
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              _genderLabels[g]!,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: selected
-                                    ? Colors.white
-                                    : AppColors.textSecondary,
-                              ),
-                            ),
+                          _label('Full Name'),
+                          _textField(
+                            controller: _nameController,
+                            icon: Icons.person_outline_rounded,
+                            hintText: 'Full Name',
+                            errorText: _error,
+                            onChanged: (_) {
+                              if (_error != null) {
+                                setState(() => _error = null);
+                              }
+                            },
                           ),
-                        );
-                      }).toList(),
-                    ),
-
-                    const SizedBox(height: 48),
-
-                          PrimaryButton(
-                            text: 'Save Changes',
-                            isLoading: _isSaving,
-                            onPressed: _save,
-                          ),
+                          _label('Mobile Number'),
+                          _readOnlyPhoneField(),
+                          _label('Date of Birth'),
+                          _dateField(),
+                          _label('Gender'),
+                          _genderField(),
+                          const SizedBox(height: 32),
+                          _saveButton(),
+                          const SizedBox(height: 20),
                         ],
                       ),
                     ),
@@ -304,53 +394,281 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ),
     );
   }
-}
 
-class _Header extends StatelessWidget {
-  final VoidCallback onBack;
-  const _Header({required this.onBack});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Row(
+  // ── Profile photo (bordered avatar + camera badge) ──────────────
+  Widget _buildProfilePhoto() {
+    ImageProvider? image;
+    if (_newPhoto != null) {
+      image = FileImage(_newPhoto!);
+    } else if (_profilePhotoUrl != null) {
+      image = NetworkImage(_profilePhotoUrl!);
+    }
+    return Center(
+      child: Column(
         children: [
-          GestureDetector(
-            onTap: onBack,
-            behavior: HitTestBehavior.opaque,
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
+          Stack(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: _accent, width: 1.5),
+                ),
+                child: CircleAvatar(
+                  radius: 54,
+                  backgroundColor: _accent.withValues(alpha: 0.08),
+                  backgroundImage: image,
+                  child: image == null
+                      ? Icon(Icons.person_rounded, size: 52, color: _accent)
+                      : null,
+                ),
+              ),
+              Positioned(
+                right: 2,
+                bottom: 2,
+                child: GestureDetector(
+                  onTap: _showPhotoOptions,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFFF1F5F9),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.08),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(Icons.camera_alt_outlined,
+                        color: _accent, size: 18),
                   ),
-                ],
+                ),
               ),
-              child: const Icon(
-                Icons.arrow_back_rounded,
-                color: AppColors.primary,
-                size: 22,
-              ),
-            ),
+            ],
           ),
-          const SizedBox(width: 14),
-          Text(
-            'Edit Profile',
-            style: GoogleFonts.poppins(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-              letterSpacing: -0.5,
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: _showPhotoOptions,
+            child: Text(
+              'Change Photo',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: _accent,
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _label(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, top: 16),
+      child: Text(
+        text,
+        style: GoogleFonts.inter(
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          color: const Color(0xFF0F172A),
+        ),
+      ),
+    );
+  }
+
+  OutlineInputBorder _border(Color color) => OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: color, width: 1.5),
+      );
+
+  Widget _textField({
+    required TextEditingController controller,
+    required IconData icon,
+    required String hintText,
+    String? errorText,
+    ValueChanged<String>? onChanged,
+  }) {
+    return TextField(
+      controller: controller,
+      textCapitalization: TextCapitalization.words,
+      onChanged: onChanged,
+      style: GoogleFonts.inter(
+        fontSize: 15,
+        fontWeight: FontWeight.w500,
+        color: const Color(0xFF0F172A),
+      ),
+      decoration: InputDecoration(
+        prefixIcon: Icon(icon, color: _accent, size: 22),
+        hintText: hintText,
+        errorText: errorText,
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 16),
+        border: _border(const Color(0xFFE2E8F0)),
+        enabledBorder: _border(const Color(0xFFE2E8F0)),
+        focusedBorder: _border(_accent),
+      ),
+    );
+  }
+
+  // Phone is the account identity — display only, not editable here.
+  Widget _readOnlyPhoneField() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      child: Row(
+        children: [
+          Icon(Icons.phone_outlined, color: _accent, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _phone.isEmpty ? '—' : _phone,
+              style: GoogleFonts.inter(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: const Color(0xFF0F172A),
+              ),
+            ),
+          ),
+          const Icon(Icons.lock_outline_rounded,
+              color: Color(0xFF94A3B8), size: 18),
+        ],
+      ),
+    );
+  }
+
+  Widget _dateField() {
+    final text = _dob == null
+        ? 'Select date'
+        : '${_dob!.day} ${_months[_dob!.month - 1]} ${_dob!.year}';
+    return GestureDetector(
+      onTap: _selectDate,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        child: Row(
+          children: [
+            Icon(Icons.calendar_today_outlined, color: _accent, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                text,
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: _dob == null
+                      ? const Color(0xFF94A3B8)
+                      : const Color(0xFF0F172A),
+                ),
+              ),
+            ),
+            const Icon(Icons.keyboard_arrow_down_rounded,
+                color: Color(0xFF64748B), size: 22),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _genderField() {
+    final label =
+        _selectedGender != null ? _genderLabels[_selectedGender]! : 'Select gender';
+    return GestureDetector(
+      onTap: _showGenderPicker,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        child: Row(
+          children: [
+            Icon(Icons.person_outline_rounded, color: _accent, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: _selectedGender != null
+                      ? const Color(0xFF0F172A)
+                      : const Color(0xFF94A3B8),
+                ),
+              ),
+            ),
+            const Icon(Icons.keyboard_arrow_down_rounded,
+                color: Color(0xFF64748B), size: 22),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _saveButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _isSaving ? null : _save,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _accent,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: _accent.withValues(alpha: 0.5),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          elevation: 0,
+        ),
+        child: _isSaving
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Colors.white,
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.save, color: Colors.white, size: 18),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Save Changes',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
