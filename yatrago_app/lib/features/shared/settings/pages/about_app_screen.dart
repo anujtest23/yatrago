@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/router/route_names.dart';
 import '../widgets/info_page_scaffold.dart';
+import '../widgets/settings_ui.dart';
 
 class AboutAppScreen extends StatelessWidget {
   const AboutAppScreen({super.key});
@@ -70,6 +73,25 @@ class AboutAppScreen extends StatelessWidget {
             InfoBullet('Wallet top-ups and trip history at your fingertips.'),
           ],
         ),
+        SettingsSectionLabel('Legal & Policies'),
+        SettingsCard(
+          children: [
+            SettingsTile(
+              icon: Icons.description_outlined,
+              title: 'Terms & Conditions',
+              subtitle: 'Read our terms and conditions.',
+              onTap: () => context.push(RouteNames.termsConditions),
+            ),
+            const SettingsDivider(),
+            SettingsTile(
+              icon: Icons.shield_outlined,
+              title: 'Privacy Policy',
+              subtitle: 'Learn how we protect your data.',
+              onTap: () => context.push(RouteNames.privacyPolicy),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
         const InfoSection(
           title: 'Get in touch',
           icon: Icons.mail_outline_rounded,

@@ -55,6 +55,13 @@ class RouteNames {
   static const String faq = '/settings/faq';
   static const String privacyPolicy = '/settings/privacy-policy';
   static const String termsConditions = '/settings/terms';
+
+  // Privacy / Terms static sub-pages (leaf detail screens reached from the
+  // Privacy Policy and Terms & Conditions hubs). All informational — no backend.
+  static const String infoCollect = '/settings/privacy-policy/info-collect';
+  static const String privacyDetail = '/settings/privacy-policy/detail';
+  static const String fullPrivacyPolicy = '/settings/privacy-policy/full';
+  static const String termsDetail = '/settings/terms/detail';
   static const String safety = '/settings/safety';
   static const String appVersion = '/settings/app-version';
   static const String comingSoon = '/settings/coming-soon';

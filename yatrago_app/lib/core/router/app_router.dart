@@ -51,6 +51,10 @@ import '../../features/shared/settings/pages/help_support_screen.dart';
 import '../../features/shared/settings/pages/faq_screen.dart';
 import '../../features/shared/settings/pages/privacy_policy_screen.dart';
 import '../../features/shared/settings/pages/terms_conditions_screen.dart';
+import '../../features/shared/settings/pages/info_collect_screen.dart';
+import '../../features/shared/settings/pages/privacy_detail_screen.dart';
+import '../../features/shared/settings/pages/full_privacy_policy_screen.dart';
+import '../../features/shared/settings/pages/terms_detail_screen.dart';
 import '../../features/shared/settings/pages/safety_screen.dart';
 import '../../features/shared/settings/pages/app_version_screen.dart';
 import '../../features/shared/settings/pages/notification_settings_screen.dart';
@@ -406,6 +410,36 @@ final appRouter = GoRouter(
     GoRoute(
       path: RouteNames.termsConditions,
       builder: (_, __) => const TermsConditionsScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.infoCollect,
+      builder: (_, __) => const InfoCollectScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.privacyDetail,
+      builder: (context, state) {
+        final data = state.extra as Map<String, dynamic>;
+        return PrivacyDetailScreen(
+          title: data['title'] as String,
+          subtitle: data['subtitle'] as String,
+          bulletPoints: (data['bullets'] as List).cast<String>(),
+        );
+      },
+    ),
+    GoRoute(
+      path: RouteNames.fullPrivacyPolicy,
+      builder: (_, __) => const FullPrivacyPolicyScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.termsDetail,
+      builder: (context, state) {
+        final data = state.extra as Map<String, dynamic>;
+        return TermsDetailScreen(
+          title: data['title'] as String,
+          subtitle: data['subtitle'] as String,
+          bulletPoints: (data['bullets'] as List).cast<String>(),
+        );
+      },
     ),
     GoRoute(
       path: RouteNames.safety,

@@ -295,6 +295,52 @@ class _ComingSoonPill extends StatelessWidget {
   }
 }
 
+/// Pinned primary footer button (ported from the Yatri hub pages) that
+/// dismisses the current page. Handles the bottom safe-area inset because the
+/// [InfoPageScaffold] body is laid out with `bottom: false`.
+class InfoFooterButton extends StatelessWidget {
+  final String label;
+  final Color accent;
+
+  const InfoFooterButton({
+    super.key,
+    required this.label,
+    this.accent = AppColors.primary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFFFEFEFE),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        MediaQuery.of(context).padding.bottom + 12,
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: ElevatedButton(
+          onPressed: () => context.pop(),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: accent,
+            foregroundColor: Colors.white,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: Text(
+            label,
+            style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Small caption above a group of cards (e.g. "ACCOUNT").
 class SettingsSectionLabel extends StatelessWidget {
   final String label;
