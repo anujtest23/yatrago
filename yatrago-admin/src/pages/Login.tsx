@@ -19,12 +19,23 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Backend requires a full Nepal mobile number: +977 followed by a 10-digit
+  // number starting 96–98. The input collects only the 10 local digits, so we
+  // prefix +977 before sending and validate the same shape the API enforces.
+  const NEPAL_LOCAL_REGEX = /^9[6-8]\d{8}$/;
+  const fullPhone = `+977${phone}`;
+  const phoneValid = NEPAL_LOCAL_REGEX.test(phone);
+
   const requestOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!phoneValid) {
+      setError('Enter a valid 10-digit Nepal mobile number (starts 96–98).');
+      return;
+    }
     setBusy(true);
     try {
-      const res = await sendOtp(phone.trim());
+      const res = await sendOtp(fullPhone);
       setDevOtp(res.otp ?? null); // backend returns OTP only in development
       setStep('otp');
     } catch (err) {
@@ -51,7 +62,7 @@ export default function Login() {
     setError(null);
     setBusy(true);
     try {
-      const res = await verifyOtp(phone.trim(), otp.trim());
+      const res = await verifyOtp(fullPhone, otp.trim());
       if (res.mfaRequired && res.mfaToken) {
         setMfaToken(res.mfaToken);
         setStep('mfa');
@@ -116,7 +127,10 @@ export default function Login() {
                   autoFocus
                   required
                   value={mfaCode}
-                  onChange={(e) => setMfaCode(e.target.value)}
+                  onChange={(e) =>
+                    setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+                  }
+                  maxLength={6}
                   placeholder="6-digit code"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-lg tracking-[0.3em] outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
                 />
@@ -131,17 +145,31 @@ export default function Login() {
                 <label className="mb-1 block text-sm font-medium text-slate-700">
                   Phone number
                 </label>
-                <input
-                  type="tel"
-                  autoFocus
-                  required
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="98XXXXXXXX"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
-                />
+                <div className="flex items-center rounded-lg border border-slate-300 focus-within:border-slate-900 focus-within:ring-1 focus-within:ring-slate-900">
+                  <span className="select-none border-r border-slate-300 px-3 py-2 text-sm text-slate-500">
+                    🇳🇵 +977
+                  </span>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    autoFocus
+                    required
+                    value={phone}
+                    // Keep only digits and cap at the 10-digit local number so
+                    // the field can never send a malformed number to the API.
+                    onChange={(e) =>
+                      setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))
+                    }
+                    placeholder="98XXXXXXXX"
+                    className="w-full rounded-r-lg px-3 py-2 text-sm outline-none"
+                  />
+                </div>
               </div>
-              <Button type="submit" disabled={busy} className="w-full">
+              <Button
+                type="submit"
+                disabled={busy || !phoneValid}
+                className="w-full"
+              >
                 {busy ? 'Sending…' : 'Send OTP'}
               </Button>
             </form>
@@ -162,7 +190,10 @@ export default function Login() {
                   autoFocus
                   required
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
+                  onChange={(e) =>
+                    setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))
+                  }
+                  maxLength={6}
                   placeholder="6-digit code"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-lg tracking-[0.3em] outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
                 />

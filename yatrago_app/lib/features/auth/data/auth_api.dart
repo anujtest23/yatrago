@@ -127,4 +127,36 @@ class AuthApi {
       throw ApiException.fromDioError(e);
     }
   }
+
+  // ── Account deletion (OTP-gated, 30-day grace period) ──────────
+
+  // POST /users/me/deletion/request-otp — send the deletion confirmation OTP
+  static Future<void> requestDeletionOtp() async {
+    try {
+      await DioClient.instance.post(ApiConstants.deletionRequestOtp);
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  // POST /users/me/deletion/confirm — enter the pending-deletion grace period
+  static Future<void> confirmDeletion(String otp) async {
+    try {
+      await DioClient.instance.post(
+        ApiConstants.deletionConfirm,
+        data: {'otp': otp},
+      );
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  // POST /users/me/deletion/cancel — cancel a pending deletion
+  static Future<void> cancelDeletion() async {
+    try {
+      await DioClient.instance.post(ApiConstants.deletionCancel);
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
 }

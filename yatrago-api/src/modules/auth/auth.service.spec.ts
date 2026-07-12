@@ -28,6 +28,7 @@ const activeUser = {
   role: 'user',
   isVerified: false,
   isActive: true,
+  accountStatus: 'active',
   deletionRequestedAt: null,
 };
 
@@ -35,6 +36,7 @@ describe('AuthService', () => {
   let service: AuthService;
   let prisma: {
     user: Record<string, jest.Mock>;
+    reactivationRequest: Record<string, jest.Mock>;
     authSession: Record<string, jest.Mock>;
   };
   let redis: Record<string, jest.Mock>;
@@ -47,6 +49,10 @@ describe('AuthService', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+      },
+      reactivationRequest: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
       },
       authSession: {
         create: jest.fn().mockResolvedValue({}),
@@ -217,21 +223,31 @@ describe('AuthService', () => {
       );
     });
 
-    it('reactivates an account inside the deletion grace period', async () => {
+    it('does NOT cancel a pending deletion on login (business rule)', async () => {
       prisma.user.findUnique.mockResolvedValue({
         ...activeUser,
-        isActive: false,
+        accountStatus: 'pending_deletion',
+        isActive: true,
         deletionRequestedAt: new Date(),
       });
-      prisma.user.update.mockResolvedValue({ ...activeUser });
 
       const res = await service.verifyOtp(dto, ctx);
-      expect(prisma.user.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { deletionRequestedAt: null, isActive: true },
-        }),
-      );
+      // Login succeeds and grants tokens, but must not clear the deletion.
       expect(res.isNewUser).toBe(false);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('blocks a deleted account and raises a reactivation request', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        ...activeUser,
+        accountStatus: 'deleted',
+        isActive: false,
+      });
+
+      await expect(service.verifyOtp(dto, ctx)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(prisma.reactivationRequest.create).toHaveBeenCalled();
     });
 
     it('evicts the oldest sessions beyond the concurrent-session cap', async () => {

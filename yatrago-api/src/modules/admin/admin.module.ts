@@ -4,9 +4,11 @@ import { AdminService } from './admin.service';
 import { AdminGuard } from './guards/admin.guard';
 import { SuperAdminGuard } from './guards/super-admin.guard';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { CouponsModule } from '../coupons/coupons.module';
+import { SupportModule } from '../support/support.module';
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, CouponsModule, SupportModule],
   controllers: [AdminController],
   providers: [AdminService, AdminGuard, SuperAdminGuard],
 })

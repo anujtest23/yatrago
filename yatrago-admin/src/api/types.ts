@@ -117,6 +117,65 @@ export interface BookingRow {
   };
 }
 
+export interface CouponRow {
+  id: string;
+  code: string;
+  description: string | null;
+  discountType: 'percentage' | 'fixed';
+  discountValue: number;
+  maxDiscount: number | null;
+  minAmount: number;
+  audience: 'all' | 'passenger' | 'driver';
+  usageLimit: number | null;
+  perUserLimit: number | null;
+  isActive: boolean;
+  validFrom: string | null;
+  validUntil: string | null;
+  createdAt: string;
+}
+
+export interface SupportTicketRow {
+  id: string;
+  category: string;
+  subject: string;
+  description: string;
+  attachments: string[];
+  status: 'open' | 'in_progress' | 'closed';
+  adminReply: string | null;
+  createdAt: string;
+  user?: { id: string; fullName: string | null; phoneNumber: string } | null;
+}
+
+export interface IssueReportRow {
+  id: string;
+  category: string;
+  description: string;
+  attachments: string[];
+  status: 'open' | 'investigating' | 'resolved' | 'dismissed';
+  assignedTo: string | null;
+  resolution: string | null;
+  bookingId: string | null;
+  rideId: string | null;
+  createdAt: string;
+  user?: { id: string; fullName: string | null; phoneNumber: string } | null;
+}
+
+export interface ReactivationRow {
+  id: string;
+  phoneNumber: string;
+  previousUserId: string;
+  status: string;
+  rejectionReason: string | null;
+  requestedAt: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  previousUser?: {
+    id: string;
+    fullName: string | null;
+    accountStatus: string;
+  } | null;
+}
+
 export interface PayoutRow {
   id: string;
   status: string;

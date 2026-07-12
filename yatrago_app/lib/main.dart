@@ -6,6 +6,8 @@ import 'core/router/app_router.dart';
 import 'core/router/route_names.dart';
 import 'core/network/dio_client.dart';
 import 'core/theme/app_theme.dart';
+import 'features/shared/chat/chat_socket.dart';
+import 'features/shared/chat/chat_unread.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,8 +15,13 @@ void main() async {
   // Load .env file
   await dotenv.load(fileName: '.env');
 
-  // When a session dies and token refresh fails, route back to login.
-  DioClient.onSessionExpired = () => appRouter.go(RouteNames.login);
+  // When a session dies and token refresh fails, tear down the chat socket
+  // (it carries the user's identity) and route back to login.
+  DioClient.onSessionExpired = () {
+    ChatUnread.instance.stop();
+    ChatSocket.instance.dispose();
+    appRouter.go(RouteNames.login);
+  };
 
   // Force portrait mode
   await SystemChrome.setPreferredOrientations([

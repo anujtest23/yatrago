@@ -12,14 +12,13 @@ import { SmsService } from '../platform/sms.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { RejectBookingDto } from './dto/reject-booking.dto';
-import { SendMessageDto } from './dto/send-message.dto';
 
 import { NotificationsService } from '../notifications/notifications.service';
 import { renderTemplate } from '../notifications/notification-templates';
 import { mergeNotificationSettings } from '../notifications/notification-preferences';
 import { FraudService } from '../platform/fraud.service';
-import { SafeBrowsingService } from '../platform/safe-browsing.service';
-import { moderateMessage } from '../../common/utils/content-moderation';
+import { ChatService } from '../chat/chat.service';
+import { CouponsService } from '../coupons/coupons.service';
 @Injectable()
 export class BookingsService {
   constructor(
@@ -29,7 +28,8 @@ export class BookingsService {
     private wallet: WalletService,
     private sms: SmsService,
     private fraud: FraudService,
-    private safeBrowsing: SafeBrowsingService,
+    private chat: ChatService,
+    private coupons: CouponsService,
   ) {}
 
   // ── POST /bookings ───────────────────────────────────────────
@@ -125,7 +125,24 @@ export class BookingsService {
     }
 
     // Calculate total amount (fare the passenger pays the driver directly)
-    const totalAmount = ride.pricePerSeat * dto.seatsBooked;
+    const grossAmount = ride.pricePerSeat * dto.seatsBooked;
+
+    // Coupon: the discount is computed server-side from the stored coupon
+    // definition — the client's couponCode is the only trusted input.
+    let discountAmount = 0;
+    let totalAmount = grossAmount;
+    let couponQuote: { couponId: string; discountAmount: number } | null = null;
+    if (dto.couponCode) {
+      const quote = await this.coupons.quote(
+        userId,
+        dto.couponCode,
+        grossAmount,
+        'passenger',
+      );
+      discountAmount = quote.discountAmount;
+      totalAmount = quote.finalAmount;
+      couponQuote = { couponId: quote.couponId, discountAmount };
+    }
 
     // Every booking starts as a request — the driver must accept it.
     // Seats are NOT reserved here; they decrement only on accept.
@@ -145,6 +162,7 @@ export class BookingsService {
           dropLng: dto.dropLng,
           dropName: dto.dropName,
           couponCode: dto.couponCode,
+          discountAmount,
         },
         include: {
           ride: {
@@ -181,6 +199,17 @@ export class BookingsService {
         );
       }
       throw error;
+    }
+
+    // Ledger the coupon redemption now that the booking exists. Reversed if
+    // the booking is later cancelled/rejected/expired.
+    if (couponQuote) {
+      await this.coupons.recordRedemption(this.prisma, {
+        couponId: couponQuote.couponId,
+        userId,
+        bookingId: booking.id,
+        discountAmount: couponQuote.discountAmount,
+      });
     }
 
     // Notify the driver of the new booking request
@@ -402,6 +431,9 @@ export class BookingsService {
       }
     });
 
+    // Release any coupon redemption so it no longer counts against limits.
+    await this.coupons.reverseForBooking(bookingId);
+
     // Serial cancellers strand drivers and lock up seats for real riders.
     const cancelledToday = await this.prisma.booking.count({
       where: {
@@ -494,6 +526,10 @@ export class BookingsService {
       { bookingId },
     );
 
+    // Accepting the request opens the conversation — signal both parties so
+    // their chat/Messages tab lights up immediately.
+    this.chat.notifyChatOpened(bookingId, booking.passengerId, userId);
+
     // SMS fallback for this critical event (skipped if bookings muted)
     if (
       mergeNotificationSettings(updated.passenger.notificationSettings).bookings
@@ -539,6 +575,10 @@ export class BookingsService {
         cancelledAt: new Date(),
       },
     });
+
+    await Promise.all(
+      stillPending.map((b) => this.coupons.reverseForBooking(b.id)),
+    );
 
     await Promise.all(
       stillPending.map((b) =>
@@ -588,6 +628,8 @@ export class BookingsService {
       },
     });
 
+    await this.coupons.reverseForBooking(bookingId);
+
     // Notify passenger their booking was rejected
     await this.notifications.createNotification(
       booking.passengerId,
@@ -598,151 +640,5 @@ export class BookingsService {
     );
 
     return { message: 'Booking rejected' };
-  }
-  // ── POST /messages ───────────────────────────────────────────
-  async sendMessage(userId: string, dto: SendMessageDto) {
-    const booking = await this.prisma.booking.findUnique({
-      where: { id: dto.bookingId },
-      include: {
-        ride: {
-          include: { driver: true },
-        },
-      },
-    });
-
-    if (!booking) throw new NotFoundException('Booking not found');
-
-    // Verify sender is part of this booking
-    const driver = await this.prisma.driverProfile.findUnique({
-      where: { userId },
-    });
-
-    const isPassenger = booking.passengerId === userId;
-    const isDriver = driver && booking.ride.driverId === driver.id;
-
-    if (!isPassenger && !isDriver) {
-      throw new ForbiddenException('You are not part of this booking');
-    }
-
-    // Rate limit: max 20 messages per sender per 30s window (spam guard).
-    const recentCount = await this.prisma.message.count({
-      where: {
-        senderId: userId,
-        sentAt: { gte: new Date(Date.now() - 30_000) },
-      },
-    });
-    if (recentCount >= 20) {
-      throw new BadRequestException(
-        'You are sending messages too quickly. Please slow down.',
-      );
-    }
-
-    // Moderate: redact phone numbers / links / emails (off-platform
-    // bypass), flag abuse. Delivered but sanitized.
-    const { clean, flags, urls } = moderateMessage(dto.content);
-    if (flags.includes('phone') || flags.includes('link')) {
-      await this.fraud.record(userId, 'chat_contact_share', 5, {
-        bookingId: dto.bookingId,
-        flags,
-      });
-    }
-    if (flags.includes('suspicious_link')) {
-      // Shortener / raw-IP / punycode / throwaway-TLD link — phishing shape.
-      await this.fraud.record(userId, 'chat_suspicious_link', 10, {
-        bookingId: dto.bookingId,
-      });
-    }
-    if (flags.includes('abuse')) {
-      await this.fraud.record(userId, 'chat_abuse', 15, {
-        bookingId: dto.bookingId,
-      });
-    }
-    if (urls.length > 0 && this.safeBrowsing.enabled) {
-      // Reputation lookup runs after delivery (links are redacted anyway);
-      // a confirmed malware/phishing URL is a heavy sender signal.
-      void this.safeBrowsing.anyMalicious(urls).then((malicious) => {
-        if (malicious) {
-          void this.fraud.record(userId, 'chat_malware_link', 25, {
-            bookingId: dto.bookingId,
-          });
-        }
-      });
-    }
-
-    // Receiver is the other party
-    const receiverId = isPassenger
-      ? booking.ride.driver.userId
-      : booking.passengerId;
-
-    const message = await this.prisma.message.create({
-      data: {
-        bookingId: dto.bookingId,
-        senderId: userId,
-        receiverId,
-        content: clean,
-      },
-      include: {
-        sender: {
-          select: {
-            id: true,
-            fullName: true,
-            profilePhotoUrl: true,
-          },
-        },
-      },
-    });
-
-    return { message: 'Message sent', data: message };
-  }
-
-  // ── GET /messages/:bookingId ─────────────────────────────────
-  async getMessages(userId: string, bookingId: string) {
-    const booking = await this.prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: {
-        ride: {
-          include: { driver: true },
-        },
-      },
-    });
-
-    if (!booking) throw new NotFoundException('Booking not found');
-
-    const driver = await this.prisma.driverProfile.findUnique({
-      where: { userId },
-    });
-
-    const isPassenger = booking.passengerId === userId;
-    const isDriver = driver && booking.ride.driverId === driver.id;
-
-    if (!isPassenger && !isDriver) {
-      throw new ForbiddenException('You are not part of this booking');
-    }
-
-    const messages = await this.prisma.message.findMany({
-      where: { bookingId },
-      orderBy: { sentAt: 'asc' },
-      include: {
-        sender: {
-          select: {
-            id: true,
-            fullName: true,
-            profilePhotoUrl: true,
-          },
-        },
-      },
-    });
-
-    // Mark all received messages as read
-    await this.prisma.message.updateMany({
-      where: {
-        bookingId,
-        receiverId: userId,
-        isRead: false,
-      },
-      data: { isRead: true },
-    });
-
-    return { messages, total: messages.length };
   }
 }

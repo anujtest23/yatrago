@@ -24,6 +24,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { to: '/users', label: 'Users', icon: 'M16 14a4 4 0 10-8 0M12 7a3 3 0 100 6 3 3 0 000-6z' },
       { to: '/drivers', label: 'Driver Verification', icon: 'M5 13l4 4L19 7' },
       { to: '/vehicles', label: 'Vehicles', icon: 'M3 13l2-5h14l2 5v5H3v-5zM7 18v2M17 18v2' },
+      { to: '/reactivations', label: 'Reactivation Requests', icon: 'M4 4v6h6M20 20v-6h-6M20 9A8 8 0 006 5M4 15a8 8 0 0014 4' },
     ],
   },
   {
@@ -32,7 +33,14 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { to: '/trips', label: 'Trips', icon: 'M4 12h16M12 4l8 8-8 8' },
       { to: '/bookings', label: 'Bookings', icon: 'M5 4h14v16l-7-3-7 3z' },
       { to: '/payouts', label: 'Payouts', icon: 'M12 1v22M17 5H9a4 4 0 000 8h6a4 4 0 010 8H6' },
-      { to: '/topups', label: 'Wallet Top-Ups', icon: 'M3 10h18M3 6h18v12H3zM7 15h4' },
+      { to: '/coupons', label: 'Coupons', icon: 'M9 5H5a2 2 0 00-2 2v3a2 2 0 010 4v3a2 2 0 002 2h4M9 5h10a2 2 0 012 2v3a2 2 0 000 4v3a2 2 0 01-2 2H9M9 5v14' },
+    ],
+  },
+  {
+    section: 'Support',
+    items: [
+      { to: '/tickets', label: 'Contact Us', icon: 'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z' },
+      { to: '/issues', label: 'Issue Reports', icon: 'M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z' },
     ],
   },
   {

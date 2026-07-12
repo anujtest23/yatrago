@@ -4,7 +4,9 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/router/route_names.dart';
 import 'wallet_api.dart';
+import 'payment_api.dart';
 
 class DriverWalletScreen extends StatefulWidget {
   const DriverWalletScreen({super.key});
@@ -14,7 +16,7 @@ class DriverWalletScreen extends StatefulWidget {
 }
 
 class _DriverWalletScreenState extends State<DriverWalletScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final TabController _tabController;
 
   bool _isLoading = true;
@@ -22,19 +24,51 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
   double _balance = 0;
   List<Map<String, dynamic>> _transactions = [];
   List<Map<String, dynamic>> _commissions = [];
-  bool _isToppingUp = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 2, vsync: this);
     _load();
+    // G1: credit any top-up that settled while the app was closed.
+    _reconcile();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tabController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _reconcile();
+  }
+
+  /// Reconcile pending top-ups server-side; refresh the ledger if any credited.
+  Future<void> _reconcile() async {
+    try {
+      final res = await PaymentApi.reconcile();
+      if (!mounted) return;
+      final credited = (res['credited'] as num?)?.toInt() ?? 0;
+      final bal = (res['balance'] as num?)?.toDouble();
+      if (credited > 0) {
+        await _load();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('A pending top-up was credited to your wallet.'),
+            ),
+          );
+        }
+      } else if (bal != null && bal != _balance) {
+        setState(() => _balance = bal);
+      }
+    } catch (_) {
+      // Silent; the reconciliation cron is the backstop.
+    }
   }
 
   Future<void> _load() async {
@@ -63,94 +97,12 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
     }
   }
 
-  Future<void> _showTopUpSheet() async {
-    final controller = TextEditingController();
-    final amount = await showModalBottomSheet<double>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 20,
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Top Up Wallet',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              autofocus: true,
-              decoration: const InputDecoration(
-                prefixText: 'NPR ',
-                hintText: 'Enter amount',
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [500, 1000, 2000, 5000]
-                  .map(
-                    (v) => ActionChip(
-                      label: Text('NPR $v'),
-                      onPressed: () => controller.text = v.toString(),
-                    ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: AppSpacing.buttonHeight,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.driver,
-                ),
-                onPressed: () {
-                  final val = double.tryParse(controller.text.trim());
-                  if (val != null && val > 0) Navigator.pop(ctx, val);
-                },
-                child: const Text('Top Up'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (amount == null) return;
-    setState(() => _isToppingUp = true);
-    try {
-      await WalletApi.topUp(amount);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Top-up request of NPR ${amount.toStringAsFixed(0)} submitted. '
-            'Balance updates after verification.',
-          ),
-          backgroundColor: AppColors.success,
-        ),
-      );
+  // Top-ups are self-service via the payment gateway. Open the Top Up screen
+  // and refresh the balance if it reports a successful credit.
+  Future<void> _openTopUp() async {
+    final credited = await context.push<bool>(RouteNames.topUp);
+    if (credited == true && mounted) {
       await _load();
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message)));
-    } finally {
-      if (mounted) setState(() => _isToppingUp = false);
     }
   }
 
@@ -166,6 +118,13 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
           onPressed: () => context.pop(),
         ),
         title: const Text('My Wallet'),
+        actions: [
+          IconButton(
+            tooltip: 'Top-up history',
+            icon: const Icon(Icons.history_rounded, color: AppColors.driver),
+            onPressed: () => context.push(RouteNames.topupHistory),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(
@@ -236,14 +195,8 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
                 backgroundColor: Colors.white,
                 foregroundColor: AppColors.driver,
               ),
-              onPressed: _isToppingUp ? null : _showTopUpSheet,
-              icon: _isToppingUp
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.add_rounded),
+              onPressed: _openTopUp,
+              icon: const Icon(Icons.add_rounded),
               label: const Text('Top Up'),
             ),
           ),

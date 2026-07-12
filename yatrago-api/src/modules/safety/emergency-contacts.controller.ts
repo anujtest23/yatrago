@@ -4,6 +4,8 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +17,8 @@ import {
 } from '@nestjs/swagger';
 import { SafetyService } from './safety.service';
 import { CreateEmergencyContactDto } from './dto/create-emergency-contact.dto';
+import { UpdateEmergencyContactDto } from './dto/update-emergency-contact.dto';
+import { ReorderEmergencyContactsDto } from './dto/reorder-emergency-contacts.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -37,10 +41,34 @@ export class EmergencyContactsController {
     return this.safetyService.addEmergencyContact(user.id, dto);
   }
 
+  // Declared before ':id' so the literal path wins the route match.
+  @Patch('reorder')
+  @ApiOperation({ summary: 'Reorder emergency contacts' })
+  reorderContacts(
+    @CurrentUser() user: any,
+    @Body() dto: ReorderEmergencyContactsDto,
+  ) {
+    return this.safetyService.reorderEmergencyContacts(user.id, dto.orderedIds);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Edit an emergency contact' })
+  @ApiParam({ name: 'id', description: 'Emergency Contact ID' })
+  updateContact(
+    @CurrentUser() user: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateEmergencyContactDto,
+  ) {
+    return this.safetyService.updateEmergencyContact(user.id, id, dto);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Remove an emergency contact' })
   @ApiParam({ name: 'id', description: 'Emergency Contact ID' })
-  removeContact(@CurrentUser() user: any, @Param('id') id: string) {
+  removeContact(
+    @CurrentUser() user: any,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.safetyService.removeEmergencyContact(user.id, id);
   }
 }

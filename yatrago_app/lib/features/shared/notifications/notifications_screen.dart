@@ -8,7 +8,11 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/network/api_exception.dart';
 
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key});
+  /// When true, the screen renders with the driver (green) accent to match the
+  /// Yatri driver notifications design. The notifications API is identical for
+  /// both modes — only the brand accent changes.
+  final bool isDriver;
+  const NotificationsScreen({super.key, this.isDriver = false});
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -19,6 +23,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _isLoading = true;
   String? _error;
   int _unreadCount = 0;
+
+  /// Brand accent — green in driver mode, red for passengers.
+  Color get _accent => widget.isDriver ? AppColors.driver : AppColors.primary;
 
   @override
   void initState() {
@@ -167,8 +174,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6F8),
       body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
+          ? Center(
+              child: CircularProgressIndicator(color: _accent),
             )
           : _error != null
               ? _buildError()
@@ -262,9 +269,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             ),
                           ],
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.arrow_back_rounded,
-                          color: AppColors.primary,
+                          color: _accent,
                           size: 20,
                         ),
                       ),
@@ -277,7 +284,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           child: Text(
                             'Mark all read',
                             style: GoogleFonts.inter(
-                              color: AppColors.primary,
+                              color: _accent,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
@@ -331,7 +338,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         style: GoogleFonts.inter(
           fontSize: 15,
           fontWeight: FontWeight.w700,
-          color: AppColors.primary,
+          color: _accent,
         ),
       ),
     );
@@ -346,12 +353,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
       child: Container(
         decoration: BoxDecoration(
-          color: isRead ? Colors.white : const Color(0xFFFFF8F8),
+          color: isRead ? Colors.white : _accent.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isRead
                 ? const Color(0xFFF1F5F9)
-                : AppColors.primary.withValues(alpha: 0.25),
+                : _accent.withValues(alpha: 0.25),
           ),
           boxShadow: [
             BoxShadow(
@@ -408,8 +415,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 width: 8,
                                 height: 8,
                                 margin: const EdgeInsets.only(left: 8),
-                                decoration: const BoxDecoration(
-                                  color: AppColors.primary,
+                                decoration: BoxDecoration(
+                                  color: _accent,
                                   shape: BoxShape.circle,
                                 ),
                               ),
@@ -488,9 +495,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     color: Colors.white,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.arrow_back_rounded,
-                    color: AppColors.primary,
+                    color: _accent,
                     size: 20,
                   ),
                 ),

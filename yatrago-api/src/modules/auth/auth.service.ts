@@ -67,6 +67,31 @@ export class AuthService {
     return phone.slice(0, 6) + '******' + phone.slice(-2);
   }
 
+  // Raise a reactivation request for a deleted phone number attempting to log
+  // in. Idempotent: an existing pending request for the same account is
+  // reused so repeated login attempts don't flood the admin queue.
+  private async createReactivationRequest(
+    previousUserId: string,
+    phoneNumber: string,
+  ): Promise<void> {
+    const existing = await this.prisma.reactivationRequest.findFirst({
+      where: { previousUserId, status: 'pending' },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    await this.prisma.reactivationRequest.create({
+      data: { previousUserId, phoneNumber },
+    });
+    await this.audit.log(
+      previousUserId,
+      'account.reactivation_requested',
+      'user',
+      previousUserId,
+      { phone: this.maskPhone(phoneNumber) },
+    );
+  }
+
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
   }
@@ -237,18 +262,21 @@ export class AuthService {
       user = await this.prisma.user.create({
         data: { phoneNumber: dto.phoneNumber },
       });
+    } else if (user.accountStatus === 'deleted') {
+      // A previously-deleted phone number cannot silently re-register. The
+      // record is retained precisely to detect this: we raise (or reuse) a
+      // reactivation request for an admin to approve before the number is
+      // usable again. No tokens are issued.
+      await this.createReactivationRequest(user.id, user.phoneNumber);
+      throw new ForbiddenException(
+        'This number belonged to a deleted account. Your reactivation request has been submitted for review. You will be notified once an admin approves it.',
+      );
     } else if (!user.isActive) {
-      if (user.deletionRequestedAt) {
-        // Grace-period recovery: logging in cancels a pending deletion.
-        user = await this.prisma.user.update({
-          where: { id: user.id },
-          data: { deletionRequestedAt: null, isActive: true },
-        });
-      } else {
-        // isActive false without a deletion request = blocked by admin.
-        throw new ForbiddenException('Account suspended');
-      }
+      // isActive false = suspended by admin (deletion no longer clears this).
+      throw new ForbiddenException('Account suspended');
     }
+    // pending_deletion accounts log in normally — logging in must NOT cancel
+    // a pending deletion (business rule). Only an explicit cancel does.
 
     // Second factor gate: accounts with TOTP enrolled never get tokens
     // straight from an OTP — they must pass /auth/totp/verify first.
@@ -621,6 +649,8 @@ export class AuthService {
         activeMode: true,
         role: true,
         isVerified: true,
+        accountStatus: true,
+        deletionRequestedAt: true,
         createdAt: true,
         driverProfile: {
           select: {

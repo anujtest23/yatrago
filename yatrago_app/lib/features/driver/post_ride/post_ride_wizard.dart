@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -9,9 +10,12 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/route_names.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/network/api_exception.dart';
-import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/location_picker_screen.dart';
 
+/// Driver "Post a New Ride" screen — single scrolling page in the Yatri design
+/// language (map card, vehicle selector, one details card, gradient publish
+/// button). Optional stops/preferences live in a collapsible section so the
+/// full trip payload is still captured without a multi-step wizard.
 class PostRideWizard extends StatefulWidget {
   const PostRideWizard({super.key});
 
@@ -20,7 +24,6 @@ class PostRideWizard extends StatefulWidget {
 }
 
 class _PostRideWizardState extends State<PostRideWizard> {
-  int _step = 0;
   bool _isLoading = false;
   String? _error;
 
@@ -49,6 +52,7 @@ class _PostRideWizardState extends State<PostRideWizard> {
 
   // Price
   double _pricePerSeat = 500;
+  final _priceController = TextEditingController(text: '500');
 
   // Preferences
   bool _womenOnly = false;
@@ -56,20 +60,18 @@ class _PostRideWizardState extends State<PostRideWizard> {
   String _luggagePref = 'any';
   String _notes = '';
 
-  final List<String> _stepTitles = [
-    'Route',
-    'Stops',
-    'Date & Time',
-    'Vehicle',
-    'Price & Seats',
-    'Preferences',
-    'Preview',
-  ];
+  bool _moreExpanded = false;
 
   @override
   void initState() {
     super.initState();
     _loadVehicles();
+  }
+
+  @override
+  void dispose() {
+    _priceController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadVehicles() async {
@@ -92,8 +94,8 @@ class _PostRideWizardState extends State<PostRideWizard> {
         ? (_originLat != null ? LatLng(_originLat!, _originLng!) : null)
         : (_destLat != null ? LatLng(_destLat!, _destLng!) : null);
 
-    final result = await Navigator.push<LocationPickerResult>(
-      context,
+    final result = await Navigator.of(context, rootNavigator: true)
+        .push<LocationPickerResult>(
       MaterialPageRoute(
         builder: (context) => LocationPickerScreen(
           title: isOrigin ? 'Origin' : 'Destination',
@@ -121,6 +123,56 @@ class _PostRideWizardState extends State<PostRideWizard> {
     }
   }
 
+  Future<void> _pickDate() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _departureAt,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(primary: AppColors.driver),
+        ),
+        child: child!,
+      ),
+    );
+    if (date != null) {
+      setState(() {
+        _departureAt = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          _departureAt.hour,
+          _departureAt.minute,
+        );
+      });
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_departureAt),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(primary: AppColors.driver),
+        ),
+        child: child!,
+      ),
+    );
+    if (time != null) {
+      setState(() {
+        _departureAt = DateTime(
+          _departureAt.year,
+          _departureAt.month,
+          _departureAt.day,
+          time.hour,
+          time.minute,
+        );
+      });
+    }
+  }
+
   Future<void> _publish() async {
     setState(() {
       _isLoading = true;
@@ -131,6 +183,13 @@ class _PostRideWizardState extends State<PostRideWizard> {
       if (_originLat == null || _destLat == null) {
         setState(() {
           _error = 'Please select both origin and destination on the map';
+          _isLoading = false;
+        });
+        return;
+      }
+      if (_selectedVehicleId == null) {
+        setState(() {
+          _error = 'Please select a vehicle';
           _isLoading = false;
         });
         return;
@@ -176,96 +235,112 @@ class _PostRideWizardState extends State<PostRideWizard> {
           response.data['data']['trip'] as Map<String, dynamic>? ?? {};
       context.pushReplacement(RouteNames.ridePublished, extra: tripData);
     } on DioException catch (e) {
-      setState(() => _error = ApiException.fromDioError(e).message);
+      final ex = ApiException.fromDioError(e);
+      // Low wallet balance is a recoverable, expected outcome — offer a themed
+      // dialog that takes the driver straight to Top Up instead of a dead-end
+      // error message.
+      if (ex.code == 'INSUFFICIENT_WALLET_BALANCE') {
+        if (mounted) setState(() => _isLoading = false);
+        await _handleInsufficientBalance(ex.message);
+        return;
+      }
+      setState(() => _error = ex.message);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _validateAndNext() {
-    setState(() => _error = null);
+  Future<void> _handleInsufficientBalance(String message) async {
+    final topUp = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: Container(
+          width: 56,
+          height: 56,
+          decoration: const BoxDecoration(
+            color: AppColors.driverLight,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.account_balance_wallet_rounded,
+            color: AppColors.driver,
+            size: 28,
+          ),
+        ),
+        title: const Text(
+          'Not Enough Balance',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: AppColors.textSecondary, height: 1.4),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            height: AppSpacing.buttonHeight,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.driver,
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: const Text('Top Up'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text(
+                'Not now',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
 
-    switch (_step) {
-      case 0:
-        if (_originLat == null || _destLat == null) {
-          setState(
-            () => _error = 'Select both origin and destination on the map',
-          );
-          return;
-        }
-        break;
-      case 3:
-        if (_selectedVehicleId == null) {
-          setState(() => _error = 'Please select a vehicle');
-          return;
-        }
-        break;
+    if (topUp != true || !mounted) return;
+
+    // Go to Top Up; if the driver successfully tops up, retry publishing so
+    // they never have to re-enter the form manually.
+    final credited = await context.push<bool>(RouteNames.topUp);
+    if (credited == true && mounted) {
+      await _publish();
     }
-
-    setState(() => _step++);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: _step > 0
-            ? IconButton(
-                icon: const Icon(
-                  Icons.arrow_back,
-                  color: AppColors.textPrimary,
-                ),
-                onPressed: () => setState(() => _step--),
-              )
-            : IconButton(
-                icon: const Icon(Icons.close, color: AppColors.textPrimary),
-                onPressed: () => context.pop(),
-              ),
-        title: Text(
-          '${_stepTitles[_step]} (${_step + 1}/${_stepTitles.length})',
-        ),
-      ),
+      backgroundColor: AppColors.bgWarm,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
-            LinearProgressIndicator(
-              value: (_step + 1) / _stepTitles.length,
-              backgroundColor: AppColors.borderLight,
-              color: AppColors.driver,
-              minHeight: 4,
-            ),
+            _buildHeader(),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                child: _buildStep(),
-              ),
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Text(
-                  _error!,
-                  style: const TextStyle(color: AppColors.error, fontSize: 13),
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+                child: Column(
+                  children: [
+                    _buildMapCard(),
+                    const SizedBox(height: 16),
+                    _buildVehicleSelector(),
+                    const SizedBox(height: 16),
+                    _buildDetailsCard(),
+                  ],
                 ),
               ),
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              child: _step == _stepTitles.length - 1
-                  ? PrimaryButton(
-                      text: 'Publish Ride',
-                      isLoading: _isLoading,
-                      backgroundColor: AppColors.driver,
-                      onPressed: _publish,
-                    )
-                  : PrimaryButton(
-                      text: 'Continue',
-                      backgroundColor: AppColors.driver,
-                      onPressed: _validateAndNext,
-                    ),
             ),
           ],
         ),
@@ -273,184 +348,861 @@ class _PostRideWizardState extends State<PostRideWizard> {
     );
   }
 
-  Widget _buildStep() {
-    switch (_step) {
-      case 0:
-        return _RouteStep(
-          originName: _originName,
-          destName: _destName,
-          onOriginTap: () => _selectLocation(true),
-          onDestTap: () => _selectLocation(false),
-        );
-      case 1:
-        return _AddStopsStep(
-          stops: _stops,
-          onStopsChanged: (s) => setState(() => _stops = s),
-        );
-      case 2:
-        return _DateTimeStep(
-          departureAt: _departureAt,
-          onDateChanged: (d) => setState(() => _departureAt = d),
-        );
-      case 3:
-        return _VehicleStep(
-          vehicles: _vehicles,
-          selectedId: _selectedVehicleId,
-          onSelect: (id) => setState(() => _selectedVehicleId = id),
-        );
-      case 4:
-        return _PriceSeatsStep(
-          pricePerSeat: _pricePerSeat,
-          totalSeats: _totalSeats,
-          onPriceChanged: (p) => setState(() => _pricePerSeat = p),
-          onSeatsChanged: (s) => setState(() => _totalSeats = s),
-        );
-      case 5:
-        return _PreferencesStep(
-          womenOnly: _womenOnly,
-          smokingPref: _smokingPref,
-          luggagePref: _luggagePref,
-          notes: _notes,
-          onWomenOnlyChanged: (v) => setState(() => _womenOnly = v),
-          onSmokingChanged: (v) => setState(() => _smokingPref = v),
-          onLuggageChanged: (v) => setState(() => _luggagePref = v),
-          onNotesChanged: (v) => setState(() => _notes = v),
-        );
-      case 6:
-        return _PreviewStep(
-          originName: _originName,
-          destName: _destName,
-          departureAt: _departureAt,
-          totalSeats: _totalSeats,
-          pricePerSeat: _pricePerSeat,
-          womenOnly: _womenOnly,
-          smokingPref: _smokingPref,
-          luggagePref: _luggagePref,
-          notes: _notes,
-          vehicles: _vehicles,
-          selectedVehicleId: _selectedVehicleId,
-          stops: _stops,
-        );
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-}
-
-// ─── Route Step ───────────────────────────────────────────────────────────────
-
-class _RouteStep extends StatelessWidget {
-  final String originName;
-  final String destName;
-  final VoidCallback onOriginTap;
-  final VoidCallback onDestTap;
-
-  const _RouteStep({
-    required this.originName,
-    required this.destName,
-    required this.onOriginTap,
-    required this.onDestTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Where are you going?',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-            letterSpacing: -0.5,
+  // ── Header ─────────────────────────────────────────────────────
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => context.pop(),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.driverLight,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.arrow_back,
+                  color: AppColors.driver, size: 20),
+            ),
           ),
-        ),
-        const SizedBox(height: 24),
-        _CityPicker(
-          label: 'From',
-          value: originName,
-          hint: 'Select origin on map',
-          icon: Icons.trip_origin_rounded,
-          color: AppColors.primary,
-          onTap: onOriginTap,
-        ),
-        const SizedBox(height: 14),
-        _CityPicker(
-          label: 'To',
-          value: destName,
-          hint: 'Select destination on map',
-          icon: Icons.location_on_rounded,
-          color: AppColors.error,
-          onTap: onDestTap,
-        ),
-      ],
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 40),
+                child: Text(
+                  'Post a New Ride',
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
-}
 
-class _CityPicker extends StatelessWidget {
-  final String label;
-  final String value;
-  final String hint;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
+  // ── Map card (decorative backdrop reflecting the chosen route) ─
+  Widget _buildMapCard() {
+    return Container(
+      width: double.infinity,
+      height: 220,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Image.asset(
+                'assets/images/map_route.png',
+                fit: BoxFit.cover,
+              ),
+            ),
+            // Origin chip (top-left) — tap to set origin.
+            Positioned(
+              left: 12,
+              top: 12,
+              child: _mapPointChip(
+                label: _originName.isEmpty ? 'Set origin' : _originName,
+                badge: 'Start',
+                badgeBg: const Color(0xFFE6F6EE),
+                badgeFg: AppColors.driver,
+                filledDot: true,
+                onTap: () => _selectLocation(true),
+              ),
+            ),
+            // Destination chip (bottom-right) — tap to set destination.
+            Positioned(
+              right: 12,
+              bottom: 40,
+              child: _mapPointChip(
+                label: _destName.isEmpty ? 'Set destination' : _destName,
+                badge: 'Destination',
+                badgeBg: const Color(0xFFFEE2E2),
+                badgeFg: const Color(0xFFEF4444),
+                filledDot: false,
+                onTap: () => _selectLocation(false),
+              ),
+            ),
+            // Hint (bottom-left)
+            Positioned(
+              left: 12,
+              bottom: 12,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.touch_app_rounded,
+                        color: AppColors.driver, size: 14),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Tap a pin to set route',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.driver,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-  const _CityPicker({
-    required this.label,
-    required this.value,
-    required this.hint,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _mapPointChip({
+    required String label,
+    required String badge,
+    required Color badgeBg,
+    required Color badgeFg,
+    required bool filledDot,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(14),
+        constraints: const BoxConstraints(maxWidth: 190),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          border: Border.all(
-            color: value.isNotEmpty ? color : AppColors.border,
-            width: value.isNotEmpty ? 2 : 1,
-          ),
-          borderRadius: BorderRadius.circular(12),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 12),
+            Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: filledDot ? Colors.white : badgeFg,
+                border: Border.all(color: badgeFg, width: 2.5),
+              ),
+              child: filledDot
+                  ? Center(
+                      child: Container(
+                        width: 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: badgeFg,
+                        ),
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: badgeBg,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                badge,
+                style: GoogleFonts.inter(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: badgeFg,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Vehicle selector (replaces Yatri's static category row) ────
+  Widget _buildVehicleSelector() {
+    if (_vehicles.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.warningLight,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.info_outline_rounded, color: AppColors.warning, size: 20),
+            SizedBox(width: 10),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textTertiary,
-                    ),
+              child: Text(
+                'No vehicles found. Complete driver verification to add one.',
+                style: TextStyle(color: AppColors.warning, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 84,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _vehicles.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, i) {
+          final v = _vehicles[i];
+          final selected = _selectedVehicleId == v['id'];
+          return GestureDetector(
+            onTap: () => setState(() {
+              _selectedVehicleId = v['id'];
+              _totalSeats = v['totalSeats'] ?? _totalSeats;
+            }),
+            child: Container(
+              width: 150,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: selected ? AppColors.driver : Colors.transparent,
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: selected
+                        ? AppColors.driver.withValues(alpha: 0.12)
+                        : Colors.black.withValues(alpha: 0.03),
+                    blurRadius: selected ? 10 : 4,
+                    offset: const Offset(0, 3),
                   ),
-                  Text(
-                    value.isEmpty ? hint : value,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: value.isEmpty
-                          ? AppColors.textTertiary
-                          : AppColors.textPrimary,
+                ],
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _vehicleIcon(v['vehicleType'] as String?),
+                    color: selected ? AppColors.driver : AppColors.textTertiary,
+                    size: 26,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${v['make']} ${v['model']}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${v['totalSeats']} seats',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: AppColors.textTertiary,
+          );
+        },
+      ),
+    );
+  }
+
+  IconData _vehicleIcon(String? type) {
+    switch (type) {
+      case 'motorcycle':
+        return Icons.directions_bike_rounded;
+      case 'suv':
+        return Icons.airport_shuttle_rounded;
+      case 'microbus':
+        return Icons.directions_bus_rounded;
+      case 'car':
+      default:
+        return Icons.directions_car_rounded;
+    }
+  }
+
+  // ── Details card ───────────────────────────────────────────────
+  Widget _buildDetailsCard() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            _buildRouteRows(),
+            const Divider(height: 32, color: Color(0xFFF1F5F9), thickness: 1.2),
+            _buildDateTimeRow(),
+            const Divider(height: 32, color: Color(0xFFF1F5F9), thickness: 1.2),
+            _buildSeatsRow(),
+            const Divider(height: 32, color: Color(0xFFF1F5F9), thickness: 1.2),
+            _buildPriceRow(),
+            const SizedBox(height: 8),
+            _buildMoreOptions(),
+            const SizedBox(height: 20),
+            if (_error != null) ...[
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.error, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+            ],
+            _buildPublishButton(),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.verified_user,
+                    color: Color(0xFF94A3B8), size: 15),
+                const SizedBox(width: 6),
+                Text(
+                  'Your ride will be reviewed before it goes live',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: const Color(0xFF94A3B8),
+                  ),
+                ),
+              ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRouteRows() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: [
+          _routeRow(
+            leading: Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.driver, width: 2),
+                color: Colors.white,
+              ),
+              child: Center(
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.driver,
+                  ),
+                ),
+              ),
+            ),
+            hint: 'Enter Source',
+            value: _originName,
+            onTap: () => _selectLocation(true),
+          ),
+          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+          _routeRow(
+            leading: const Icon(Icons.location_on,
+                color: Color(0xFFEF4444), size: 20),
+            hint: 'Enter Destination',
+            value: _destName,
+            onTap: () => _selectLocation(false),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _routeRow({
+    required Widget leading,
+    required String hint,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            leading,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                value.isEmpty ? hint : value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: value.isEmpty ? FontWeight.w500 : FontWeight.w600,
+                  color:
+                      value.isEmpty ? const Color(0xFF94A3B8) : AppColors.textPrimary,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateTimeRow() {
+    return Row(
+      children: [
+        Expanded(
+          child: _iconField(
+            icon: Icons.calendar_today_rounded,
+            label: 'Date',
+            value: DateFormat('d/M/yyyy').format(_departureAt),
+            onTap: _pickDate,
+          ),
+        ),
+        Container(height: 36, width: 1, color: const Color(0xFFE2E8F0)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _iconField(
+            icon: Icons.access_time_rounded,
+            label: 'Departure Time',
+            value: DateFormat('h:mm a').format(_departureAt),
+            onTap: _pickTime,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _iconField({
+    required IconData icon,
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: AppColors.driver, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF94A3B8),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSeatsRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.person_outline_rounded,
+                  color: AppColors.driver, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Available Seats',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF94A3B8),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$_totalSeats Seats',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _stepBtn(Icons.remove, () {
+                if (_totalSeats > 1) setState(() => _totalSeats--);
+              }),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  '$_totalSeats',
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              _stepBtn(Icons.add, () {
+                if (_totalSeats < 20) setState(() => _totalSeats++);
+              }),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _stepBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: const BoxDecoration(
+          color: AppColors.driverLight,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: AppColors.driver, size: 16),
+      ),
+    );
+  }
+
+  Widget _buildPriceRow() {
+    return Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(Icons.account_balance_wallet_outlined,
+              color: AppColors.driver, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Price per seat',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF94A3B8),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  Text(
+                    'Rs. ',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _priceController,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                      ],
+                      onChanged: (v) =>
+                          _pricePerSeat = double.tryParse(v) ?? 0,
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
+                        hintText: '0',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Collapsible advanced options (stops + preferences) ─────────
+  Widget _buildMoreOptions() {
+    final stopCount = _stops.length;
+    return Column(
+      children: [
+        InkWell(
+          onTap: () => setState(() => _moreExpanded = !_moreExpanded),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Row(
+              children: [
+                const Icon(Icons.tune_rounded,
+                    color: AppColors.driver, size: 20),
+                const SizedBox(width: 10),
+                Text(
+                  'More options',
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (stopCount > 0 || _womenOnly)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.driverLight,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _summaryBadge(stopCount),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.driver,
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                AnimatedRotation(
+                  turns: _moreExpanded ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: const Icon(Icons.keyboard_arrow_down_rounded,
+                      color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_moreExpanded) ...[
+          const Divider(height: 8, color: Color(0xFFF1F5F9)),
+          const SizedBox(height: 12),
+          _AddStopsStep(
+            stops: _stops,
+            onStopsChanged: (s) => setState(() => _stops = s),
+          ),
+          const SizedBox(height: 20),
+          _PreferencesStep(
+            womenOnly: _womenOnly,
+            smokingPref: _smokingPref,
+            luggagePref: _luggagePref,
+            notes: _notes,
+            onWomenOnlyChanged: (v) => setState(() => _womenOnly = v),
+            onSmokingChanged: (v) => setState(() => _smokingPref = v),
+            onLuggageChanged: (v) => setState(() => _luggagePref = v),
+            onNotesChanged: (v) => _notes = v,
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _summaryBadge(int stopCount) {
+    final parts = <String>[];
+    if (stopCount > 0) parts.add('$stopCount stop${stopCount > 1 ? 's' : ''}');
+    if (_womenOnly) parts.add('women only');
+    return parts.join(' • ');
+  }
+
+  // ── Publish button (Yatri gradient + car asset) ────────────────
+  Widget _buildPublishButton() {
+    return GestureDetector(
+      onTap: _isLoading ? null : _publish,
+      child: Container(
+        width: double.infinity,
+        height: 60,
+        decoration: BoxDecoration(
+          gradient: AppColors.driverGradient,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.driver.withValues(alpha: 0.25),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              left: 0,
+              bottom: -2,
+              top: -2,
+              width: 90,
+              child: Image.asset(
+                'assets/images/green_car.png',
+                fit: BoxFit.contain,
+              ),
+            ),
+            Center(
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      'Publish Ride',
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+            ),
+            if (!_isLoading)
+              Positioned(
+                right: 12,
+                top: 12,
+                bottom: 12,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.arrow_forward,
+                      color: AppColors.driver, size: 20),
+                ),
+              ),
           ],
         ),
       ),
@@ -458,7 +1210,7 @@ class _CityPicker extends StatelessWidget {
   }
 }
 
-// ─── Add Stops Step ───────────────────────────────────────────────────────────
+// ─── Add Stops (reused inside "More options") ─────────────────────────────────
 
 class _AddStopsStep extends StatefulWidget {
   final List<Map<String, dynamic>> stops;
@@ -521,8 +1273,8 @@ class _AddStopsStepState extends State<_AddStopsStep> {
   }
 
   Future<void> _pickStopOnMap() async {
-    final result = await Navigator.push<LocationPickerResult>(
-      context,
+    final result = await Navigator.of(context, rootNavigator: true)
+        .push<LocationPickerResult>(
       MaterialPageRoute(
         builder: (context) => const LocationPickerScreen(title: 'Stop'),
       ),
@@ -547,27 +1299,24 @@ class _AddStopsStepState extends State<_AddStopsStep> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Add stops along the way',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
+        const Text(
+          'Stops along the way',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
             color: AppColors.textPrimary,
-            letterSpacing: -0.5,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         const Text(
           'Optional — add cities where you can pick up passengers.',
-          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+          style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
         ),
-        const SizedBox(height: 24),
-
-        // Pick on map button
+        const SizedBox(height: 14),
         GestureDetector(
           onTap: _pickStopOnMap,
           child: Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: AppColors.driverLight,
               borderRadius: BorderRadius.circular(12),
@@ -575,11 +1324,8 @@ class _AddStopsStepState extends State<_AddStopsStep> {
             ),
             child: const Row(
               children: [
-                Icon(
-                  Icons.add_location_alt_rounded,
-                  color: AppColors.driver,
-                  size: 22,
-                ),
+                Icon(Icons.add_location_alt_rounded,
+                    color: AppColors.driver, size: 22),
                 SizedBox(width: 12),
                 Text(
                   'Pick a stop on the map',
@@ -595,10 +1341,7 @@ class _AddStopsStepState extends State<_AddStopsStep> {
             ),
           ),
         ),
-
-        const SizedBox(height: 20),
-
-        // Common stops chips
+        const SizedBox(height: 16),
         const Text(
           'Common stops',
           style: TextStyle(
@@ -620,17 +1363,14 @@ class _AddStopsStepState extends State<_AddStopsStep> {
                     _stops.indexWhere((s) => s['locationName'] == city),
                   );
                 } else {
-                  final coords =
-                      _commonStopCoords[city] ??
+                  final coords = _commonStopCoords[city] ??
                       {'lat': 27.7172, 'lng': 85.3240};
                   _addStopWithCoords(city, coords['lat']!, coords['lng']!);
                 }
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 7,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(
                   color: added ? AppColors.driver : Colors.white,
                   border: Border.all(
@@ -642,11 +1382,8 @@ class _AddStopsStepState extends State<_AddStopsStep> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (added) ...[
-                      const Icon(
-                        Icons.check_rounded,
-                        size: 12,
-                        color: Colors.white,
-                      ),
+                      const Icon(Icons.check_rounded,
+                          size: 12, color: Colors.white),
                       const SizedBox(width: 4),
                     ],
                     Text(
@@ -663,10 +1400,8 @@ class _AddStopsStepState extends State<_AddStopsStep> {
             );
           }).toList(),
         ),
-
-        // Added stops list
         if (_stops.isNotEmpty) ...[
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
           const Text(
             'Added stops',
             style: TextStyle(
@@ -718,423 +1453,20 @@ class _AddStopsStepState extends State<_AddStopsStep> {
                   ),
                   GestureDetector(
                     onTap: () => _removeStop(i),
-                    child: const Icon(
-                      Icons.close_rounded,
-                      size: 18,
-                      color: AppColors.driver,
-                    ),
+                    child: const Icon(Icons.close_rounded,
+                        size: 18, color: AppColors.driver),
                   ),
                 ],
               ),
             );
           }),
         ],
-
-        if (_stops.isEmpty) ...[
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.borderLight,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Row(
-              children: [
-                Icon(
-                  Icons.info_outline_rounded,
-                  size: 16,
-                  color: AppColors.textTertiary,
-                ),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'No stops added. You can skip this step.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textTertiary,
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ],
     );
   }
 }
 
-// ─── Date Time Step ───────────────────────────────────────────────────────────
-
-class _DateTimeStep extends StatelessWidget {
-  final DateTime departureAt;
-  final Function(DateTime) onDateChanged;
-
-  const _DateTimeStep({required this.departureAt, required this.onDateChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'When are you departing?',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 24),
-        GestureDetector(
-          onTap: () async {
-            final date = await showDatePicker(
-              context: context,
-              initialDate: departureAt,
-              firstDate: DateTime.now(),
-              lastDate: DateTime.now().add(const Duration(days: 90)),
-              builder: (context, child) => Theme(
-                data: Theme.of(context).copyWith(
-                  colorScheme: const ColorScheme.light(
-                    primary: AppColors.driver,
-                  ),
-                ),
-                child: child!,
-              ),
-            );
-            if (date != null) {
-              onDateChanged(
-                DateTime(
-                  date.year,
-                  date.month,
-                  date.day,
-                  departureAt.hour,
-                  departureAt.minute,
-                ),
-              );
-            }
-          },
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.border),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.calendar_today_rounded,
-                  color: AppColors.driver,
-                  size: 20,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    DateFormat('EEEE, d MMMM yyyy').format(departureAt),
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.textTertiary,
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        GestureDetector(
-          onTap: () async {
-            final time = await showTimePicker(
-              context: context,
-              initialTime: TimeOfDay.fromDateTime(departureAt),
-              builder: (context, child) => Theme(
-                data: Theme.of(context).copyWith(
-                  colorScheme: const ColorScheme.light(
-                    primary: AppColors.driver,
-                  ),
-                ),
-                child: child!,
-              ),
-            );
-            if (time != null) {
-              onDateChanged(
-                DateTime(
-                  departureAt.year,
-                  departureAt.month,
-                  departureAt.day,
-                  time.hour,
-                  time.minute,
-                ),
-              );
-            }
-          },
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.border),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.access_time_rounded,
-                  color: AppColors.driver,
-                  size: 20,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    DateFormat('h:mm a').format(departureAt),
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.textTertiary,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Vehicle Step ─────────────────────────────────────────────────────────────
-
-class _VehicleStep extends StatelessWidget {
-  final List<Map<String, dynamic>> vehicles;
-  final String? selectedId;
-  final Function(String) onSelect;
-
-  const _VehicleStep({
-    required this.vehicles,
-    required this.selectedId,
-    required this.onSelect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Select your vehicle',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 24),
-        if (vehicles.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.warningLight,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Text(
-              'No vehicles found. Please complete driver verification first.',
-              style: TextStyle(color: AppColors.warning),
-            ),
-          )
-        else
-          ...vehicles.map((v) {
-            final selected = selectedId == v['id'];
-            return GestureDetector(
-              onTap: () => onSelect(v['id']),
-              child: Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(
-                    color: selected ? AppColors.driver : AppColors.border,
-                    width: selected ? 2 : 1,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: AppColors.driverLight,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.directions_car_rounded,
-                        color: AppColors.driver,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${v['make']} ${v['model']}',
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            '${v['plateNumber']} • ${v['totalSeats']} seats',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (selected)
-                      const Icon(
-                        Icons.check_circle_rounded,
-                        color: AppColors.driver,
-                      ),
-                  ],
-                ),
-              ),
-            );
-          }),
-      ],
-    );
-  }
-}
-
-// ─── Price & Seats Step ───────────────────────────────────────────────────────
-
-class _PriceSeatsStep extends StatelessWidget {
-  final double pricePerSeat;
-  final int totalSeats;
-  final Function(double) onPriceChanged;
-  final Function(int) onSeatsChanged;
-
-  const _PriceSeatsStep({
-    required this.pricePerSeat,
-    required this.totalSeats,
-    required this.onPriceChanged,
-    required this.onSeatsChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Price and seats',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          'Price per seat (NPR)',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textSecondary,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Slider(
-          value: pricePerSeat,
-          min: 100,
-          max: 5000,
-          divisions: 49,
-          activeColor: AppColors.driver,
-          label: 'NPR ${pricePerSeat.toStringAsFixed(0)}',
-          onChanged: onPriceChanged,
-        ),
-        Center(
-          child: Text(
-            'NPR ${pricePerSeat.toStringAsFixed(0)}',
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              color: AppColors.driver,
-            ),
-          ),
-        ),
-        const SizedBox(height: 32),
-        const Text(
-          'Seats to offer',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textSecondary,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            GestureDetector(
-              onTap: () {
-                if (totalSeats > 1) onSeatsChanged(totalSeats - 1);
-              },
-              child: Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.borderLight,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.remove_rounded),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: Text(
-                '$totalSeats',
-                style: const TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ),
-            GestureDetector(
-              onTap: () {
-                if (totalSeats < 20) onSeatsChanged(totalSeats + 1);
-              },
-              child: Container(
-                width: 44,
-                height: 44,
-                decoration: const BoxDecoration(
-                  color: AppColors.driverLight,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.add_rounded, color: AppColors.driver),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Preferences Step ─────────────────────────────────────────────────────────
+// ─── Preferences (reused inside "More options") ───────────────────────────────
 
 class _PreferencesStep extends StatelessWidget {
   final bool womenOnly;
@@ -1162,16 +1494,15 @@ class _PreferencesStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const Text(
           'Ride preferences',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
             color: AppColors.textPrimary,
-            letterSpacing: -0.5,
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 12),
         Row(
           children: [
             const Expanded(
@@ -1309,141 +1640,6 @@ class _ToggleChip extends StatelessWidget {
             color: selected ? Colors.white : AppColors.textSecondary,
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ─── Preview Step ─────────────────────────────────────────────────────────────
-
-class _PreviewStep extends StatelessWidget {
-  final String originName;
-  final String destName;
-  final DateTime departureAt;
-  final int totalSeats;
-  final double pricePerSeat;
-  final bool womenOnly;
-  final String smokingPref;
-  final String luggagePref;
-  final String notes;
-  final List<Map<String, dynamic>> vehicles;
-  final String? selectedVehicleId;
-  final List<Map<String, dynamic>> stops;
-
-  const _PreviewStep({
-    required this.originName,
-    required this.destName,
-    required this.departureAt,
-    required this.totalSeats,
-    required this.pricePerSeat,
-    required this.womenOnly,
-    required this.smokingPref,
-    required this.luggagePref,
-    required this.notes,
-    required this.vehicles,
-    required this.selectedVehicleId,
-    required this.stops,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final vehicle = vehicles.firstWhere(
-      (v) => v['id'] == selectedVehicleId,
-      orElse: () => {},
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Preview your ride',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'Make sure everything looks correct before publishing.',
-          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-        ),
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.driverLight,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            children: [
-              _PreviewRow('From', originName),
-              _PreviewRow('To', destName),
-              _PreviewRow(
-                'Departure',
-                DateFormat('EEE, d MMM • h:mm a').format(departureAt),
-              ),
-              _PreviewRow('Seats', '$totalSeats'),
-              _PreviewRow(
-                'Price per seat',
-                'NPR ${pricePerSeat.toStringAsFixed(0)}',
-              ),
-              if (vehicle.isNotEmpty)
-                _PreviewRow(
-                  'Vehicle',
-                  '${vehicle['make']} ${vehicle['model']}',
-                ),
-              _PreviewRow('Women only', womenOnly ? 'Yes' : 'No'),
-              _PreviewRow(
-                'Smoking',
-                smokingPref == 'no_smoking' ? 'No smoking' : 'Allowed',
-              ),
-              if (stops.isNotEmpty)
-                _PreviewRow(
-                  'Stops',
-                  stops.map((s) => s['locationName']).join(', '),
-                ),
-              if (notes.isNotEmpty) _PreviewRow('Notes', notes),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PreviewRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _PreviewRow(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 13, color: AppColors.driver),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

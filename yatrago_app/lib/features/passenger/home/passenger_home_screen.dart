@@ -16,6 +16,13 @@ import '../models/ride_model.dart';
 import '../models/booking_model.dart';
 import '../../auth/data/auth_api.dart';
 
+/// Passenger home — Yatri v2 map-first layout.
+///
+/// A full-screen live map sits behind floating controls and a draggable
+/// bottom-sheet search card. The sheet collapses to reveal the map and
+/// expands (drag up) to surface the Upcoming Trip card and the live
+/// Available Rides list. All backend wiring (search, bookings, geocoded
+/// location picker, map controller) is preserved from the previous layout.
 class PassengerHomeScreen extends ConsumerStatefulWidget {
   const PassengerHomeScreen({super.key});
 
@@ -50,22 +57,9 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
 
   DateTime _selectedDate = DateTime.now();
   int _seats = 1;
-
-  final List<Map<String, String>> _popularRoutes = [
-    {'from': 'Kathmandu', 'to': 'Pokhara'},
-    {'from': 'Kathmandu', 'to': 'Chitwan'},
-    {'from': 'Pokhara', 'to': 'Kathmandu'},
-    {'from': 'Kathmandu', 'to': 'Butwal'},
-    {'from': 'Kathmandu', 'to': 'Dharan'},
-    {'from': 'Kathmandu', 'to': 'Biratnagar'},
-  ];
-
-  // Accent colors cycled across popular route cards (Yatri design)
-  static const List<Color> _routeAccents = [
-    AppColors.primary,
-    Color(0xFF059669),
-    Color(0xFFF59E0B),
-  ];
+  // Yatri v2 adds a return-type selector. It is a visual affordance only —
+  // the backend search endpoint is one-way, so this is not sent upstream.
+  String _returnType = 'One way';
 
   @override
   void initState() {
@@ -75,7 +69,6 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
 
   Future<void> _loadData() async {
     try {
-      // Load user name
       final user = await AuthApi.getMe();
       final bookings = await BookingApi.getMyBookings(
         role: 'passenger',
@@ -104,7 +97,7 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
     _mapController.fitCamera(
       CameraFit.bounds(
         bounds: LatLngBounds.fromPoints(points),
-        padding: const EdgeInsets.all(40),
+        padding: const EdgeInsets.all(60),
       ),
     );
   }
@@ -114,26 +107,9 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
     _mapController.move(camera.center, camera.zoom + delta);
   }
 
-  void _searchRide({String? from, String? to}) {
-    if (from != null && to != null && from.isNotEmpty && to.isNotEmpty) {
-      // Popular route chips go directly to search results
-      context.push(
-        RouteNames.searchResults,
-        extra: {
-          'origin': from,
-          'destination': to,
-          'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
-          'seats': 1,
-          'originLat': null,
-          'originLng': null,
-          'destLat': null,
-          'destLng': null,
-        },
-      );
-    } else {
-      // "View all" still opens the full search page
-      context.push(RouteNames.search);
-    }
+  void _searchRide() {
+    // "View all" / "See all" opens the full search page.
+    context.push(RouteNames.search);
   }
 
   Future<void> _selectLocation(bool isOrigin) async {
@@ -225,6 +201,24 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
     );
   }
 
+  void _selectReturnType() {
+    showDialog(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Select Return Option'),
+        children: ['One way', 'Round trip'].map((type) {
+          return SimpleDialogOption(
+            onPressed: () {
+              setState(() => _returnType = type);
+              Navigator.pop(context);
+            },
+            child: Text(type, style: const TextStyle(fontSize: 16)),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   void _submitSearchCard() {
     if (_originName.isEmpty && _destName.isEmpty) {
       // Nothing selected — browse all rides
@@ -263,418 +257,317 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final topPad = MediaQuery.of(context).padding.top;
+
     return Scaffold(
       backgroundColor: AppColors.bgWarm,
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ─── Hero Section with real map ───
-              _buildHeroWithMap(),
+      body: Stack(
+        children: [
+          // ─── Full-screen live map ───
+          Positioned.fill(child: _buildMap()),
 
-              // ─── Search Card (overlapping the map) ───
-              Transform.translate(
-                offset: const Offset(0, -60),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _buildSearchCard(),
-                ),
-              ),
+          // ─── Floating menu button (top-left) ───
+          Positioned(
+            top: topPad + 12,
+            left: 16,
+            child: _circleButton(
+              icon: Icons.menu_rounded,
+              iconColor: AppColors.primary,
+              onTap: () => context.push(RouteNames.settings),
+            ),
+          ),
 
-              // ─── Upcoming booking ───
-              if (_upcomingBooking != null)
-                Transform.translate(
-                  offset: const Offset(0, -40),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _UpcomingBookingCard(
-                      booking: _upcomingBooking!,
-                      onTap: () => context.push(
-                        RouteNames.passengerRideDetail,
-                        extra: _upcomingBooking!.id,
-                      ),
-                    ),
+          // ─── Floating notification button (top-right) ───
+          Positioned(
+            top: topPad + 12,
+            right: 16,
+            child: _circleButton(
+              icon: Icons.notifications_none_rounded,
+              iconColor: const Color(0xFF1E293B),
+              badge: true,
+              onTap: () => context.push(RouteNames.notifications),
+            ),
+          ),
+
+          // ─── GPS + zoom controls (middle-right) ───
+          Positioned(
+            right: 16,
+            top: MediaQuery.of(context).size.height * 0.26,
+            child: _buildMapControls(),
+          ),
+
+          // ─── Draggable search sheet ───
+          _buildSearchSheet(),
+        ],
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════
+  // MAP — real FlutterMap with live ride markers
+  // ════════════════════════════════════════════════════
+  Widget _buildMap() {
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: _kathmandu,
+        initialZoom: 11,
+        interactionOptions: const InteractionOptions(
+          flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+        ),
+        onMapReady: () {
+          _mapReady = true;
+          _fitMapToRides();
+        },
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.yatrago.app',
+        ),
+        MarkerLayer(
+          markers: _popularRides
+              .map(
+                (ride) => Marker(
+                  point: LatLng(ride.originLat, ride.originLng),
+                  width: 36,
+                  height: 36,
+                  child: const Icon(
+                    Icons.location_on_rounded,
+                    color: AppColors.primary,
+                    size: 32,
                   ),
                 ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
 
-              // ─── Popular Routes Section ───
-              Transform.translate(
-                offset: Offset(0, _upcomingBooking != null ? -24 : -40),
-                child: _buildPopularRoutes(),
+  Widget _circleButton({
+    required IconData icon,
+    required Color iconColor,
+    required VoidCallback onTap,
+    bool badge = false,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(icon, color: iconColor, size: 24),
+            if (badge)
+              Positioned(
+                top: 11,
+                right: 11,
+                child: Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                ),
               ),
-
-              // ─── Available Rides ───
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _buildAvailableRides(),
-              ),
-            ],
-          ),
+          ],
         ),
       ),
     );
   }
 
-  // ════════════════════════════════════════════════════
-  // HERO SECTION — Background image + greeting + real map
-  // ════════════════════════════════════════════════════
-  Widget _buildHeroWithMap() {
-    return SizedBox(
-      height: 520,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // Background image at the top
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 230,
-            child: Image.asset(
-              'assets/images/passenger_top_bg.png',
-              fit: BoxFit.cover,
-              alignment: Alignment.bottomCenter,
-            ),
-          ),
-
-          // Greeting text and notification bell
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            left: 0,
-            right: 0,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Hi, ${_userName ?? 'Traveller'} 👋',
-                        style: GoogleFonts.inter(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: const Color(0xFF4A4A4A),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      RichText(
-                        text: TextSpan(
-                          children: [
-                            TextSpan(
-                              text: 'Where are you\n',
-                              style: GoogleFonts.inter(
-                                fontSize: 28,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textPrimary,
-                                height: 1.2,
-                              ),
-                            ),
-                            TextSpan(
-                              text: 'going today?',
-                              style: GoogleFonts.inter(
-                                fontSize: 28,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.primary,
-                                height: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  // Notification bell
-                  GestureDetector(
-                    onTap: () => context.push(RouteNames.notifications),
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFFE8E0DA),
-                          width: 1.5,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.06),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          const Icon(
-                            Icons.notifications_none_rounded,
-                            color: Color(0xFF4A4A4A),
-                            size: 24,
-                          ),
-                          Positioned(
-                            top: 10,
-                            right: 10,
-                            child: Container(
-                              width: 9,
-                              height: 9,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white,
-                                  width: 1.5,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+  Widget _buildMapControls() {
+    return Column(
+      children: [
+        _circleButton(
+          icon: Icons.gps_fixed,
+          iconColor: const Color(0xFF1E293B),
+          onTap: () {
+            if (_popularRides.isNotEmpty) {
+              _fitMapToRides();
+            } else {
+              _mapController.move(_kathmandu, 11);
+            }
+          },
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: 46,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(23),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
-            ),
+            ],
           ),
-
-          // Map card (real FlutterMap preview)
-          Positioned(
-            top: 185,
-            left: 12,
-            right: 12,
-            bottom: 0,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 20,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+          child: Column(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.add, color: Color(0xFF1E293B), size: 20),
+                onPressed: () => _zoomMap(1),
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: Stack(
-                  children: [
-                    // Real map — non-interactive preview; whole card taps
-                    // through to search results.
-                    Positioned.fill(
-                      child: GestureDetector(
-                        onTap: () => context.push(
-                          RouteNames.searchResults,
-                          extra: {
-                            'origin': '',
-                            'destination': '',
-                            'date': DateFormat(
-                              'yyyy-MM-dd',
-                            ).format(DateTime.now()),
-                            'seats': 1,
-                            'originLat': null,
-                            'originLng': null,
-                            'destLat': null,
-                            'destLng': null,
-                          },
-                        ),
-                        child: FlutterMap(
-                          mapController: _mapController,
-                          options: MapOptions(
-                            initialCenter: _kathmandu,
-                            initialZoom: 11,
-                            interactionOptions: const InteractionOptions(
-                              flags: InteractiveFlag.none,
-                            ),
-                            onMapReady: () {
-                              _mapReady = true;
-                              _fitMapToRides();
-                            },
-                          ),
-                          children: [
-                            TileLayer(
-                              urlTemplate:
-                                  'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                              userAgentPackageName: 'com.yatrago.app',
-                            ),
-                            MarkerLayer(
-                              markers: _popularRides
-                                  .map(
-                                    (ride) => Marker(
-                                      point: LatLng(
-                                        ride.originLat,
-                                        ride.originLng,
-                                      ),
-                                      width: 32,
-                                      height: 32,
-                                      child: const Icon(
-                                        Icons.location_on_rounded,
-                                        color: AppColors.primary,
-                                        size: 28,
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // Map controls (top-right) — wired to MapController
-                    Positioned(
-                      top: 12,
-                      right: 12,
-                      child: Column(
-                        children: [
-                          // Recenter button
-                          GestureDetector(
-                            onTap: () {
-                              if (_popularRides.isNotEmpty) {
-                                _fitMapToRides();
-                              } else {
-                                _mapController.move(_kathmandu, 11);
-                              }
-                            },
-                            child: Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color:
-                                        Colors.black.withValues(alpha: 0.1),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.my_location,
-                                color: Color(0xFF333333),
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          // Zoom in
-                          GestureDetector(
-                            onTap: () => _zoomMap(1),
-                            child: Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(12),
-                                ),
-                                border: Border.all(
-                                  color: const Color(0xFFE8E8E8),
-                                  width: 0.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color:
-                                        Colors.black.withValues(alpha: 0.06),
-                                    blurRadius: 4,
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.add,
-                                color: Color(0xFF333333),
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                          // Zoom out
-                          GestureDetector(
-                            onTap: () => _zoomMap(-1),
-                            child: Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: const BorderRadius.vertical(
-                                  bottom: Radius.circular(12),
-                                ),
-                                border: Border.all(
-                                  color: const Color(0xFFE8E8E8),
-                                  width: 0.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color:
-                                        Colors.black.withValues(alpha: 0.06),
-                                    blurRadius: 4,
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.remove,
-                                color: Color(0xFF333333),
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              Container(width: 22, height: 1, color: const Color(0xFFE2E8F0)),
+              IconButton(
+                icon: const Icon(Icons.remove,
+                    color: Color(0xFF1E293B), size: 20),
+                onPressed: () => _zoomMap(-1),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   // ════════════════════════════════════════════════════
-  // SEARCH CARD — From/To + Date + Passengers + Search
+  // SEARCH SHEET — draggable; expands to reveal live content
   // ════════════════════════════════════════════════════
-  Widget _buildSearchCard() {
+  Widget _buildSearchSheet() {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.55,
+      minChildSize: 0.32,
+      maxChildSize: 0.94,
+      snap: true,
+      snapSizes: const [0.32, 0.55, 0.94],
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 24,
+                offset: const Offset(0, -8),
+              ),
+            ],
+          ),
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+
+              // Greeting
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 12),
+                child: Text(
+                  'Hi, ${_userName ?? 'Traveller'} 👋  Where to?',
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+
+              // From / To card
+              _buildLocationCard(),
+              const SizedBox(height: 8),
+
+              // Date + Return row
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildParamCard(
+                      icon: Icons.calendar_today_outlined,
+                      label: 'Date',
+                      value: DateFormat('EEE, d MMM y').format(_selectedDate),
+                      onTap: _selectDate,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildParamCard(
+                      icon: Icons.autorenew_rounded,
+                      label: 'Return',
+                      value: _returnType,
+                      onTap: _selectReturnType,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Passengers
+              _buildParamCard(
+                icon: Icons.person_outline_rounded,
+                label: 'Passengers',
+                value: '$_seats ${_seats == 1 ? 'Seat' : 'Seats'}',
+                onTap: _selectSeats,
+              ),
+              const SizedBox(height: 12),
+
+              // Search button
+              _buildSearchButton(),
+              const SizedBox(height: 20),
+
+              // Upcoming trip (live)
+              if (_upcomingBooking != null) ...[
+                _UpcomingBookingCard(
+                  booking: _upcomingBooking!,
+                  onTap: () => context.push(
+                    RouteNames.passengerRideDetail,
+                    extra: _upcomingBooking!.id,
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+
+              // Available rides (live)
+              _buildAvailableRides(),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLocationCard() {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
       ),
       child: Column(
         children: [
-          // From field
+          // Pickup
           Row(
             children: [
-              // Blue dot
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF3B82F6),
-                  shape: BoxShape.circle,
-                  border:
-                      Border.all(color: const Color(0xFFBFDBFE), width: 2),
-                ),
-              ),
-              const SizedBox(width: 12),
+              _locationRing(AppColors.primary),
+              const SizedBox(width: 14),
               Expanded(
                 child: GestureDetector(
                   onTap: () => _selectLocation(true),
@@ -683,80 +576,74 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'From',
+                        'Pickup location',
                         style: GoogleFonts.inter(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w400,
-                          color: const Color(0xFF9CA3AF),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _originName.isEmpty
-                            ? 'Select pickup on map'
-                            : _originName,
+                        _originName.isEmpty ? 'Select pickup' : _originName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
-                          fontSize: 17,
+                          fontSize: 14,
                           fontWeight: FontWeight.w700,
                           color: _originName.isEmpty
                               ? AppColors.textHint
-                              : AppColors.textPrimary,
+                              : const Color(0xFF0F172A),
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              // Swap button
+              // Swap
               GestureDetector(
                 onTap: _swapLocations,
                 child: Container(
-                  width: 36,
-                  height: 36,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
                     color: const Color(0xFFF5F5F5),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: const Color(0xFFE8E8E8),
-                      width: 1,
-                    ),
+                    border: Border.all(color: const Color(0xFFE8E8E8)),
                   ),
                   child: const Icon(
                     Icons.swap_vert_rounded,
                     color: Color(0xFF666666),
-                    size: 20,
+                    size: 18,
                   ),
                 ),
               ),
             ],
           ),
-
-          // Divider line
+          // Connector
           Padding(
-            padding: const EdgeInsets.only(left: 24, top: 12, bottom: 12),
-            child: Container(
-              height: 1,
-              color: const Color(0xFFF0F0F0),
+            padding: const EdgeInsets.only(left: 5, top: 10, bottom: 10),
+            child: Row(
+              children: [
+                _verticalDots(),
+                const Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(left: 14),
+                    child: Divider(
+                      color: Color(0xFFF1F5F9),
+                      height: 1,
+                      thickness: 1,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-
-          // To field
+          // Drop-off
           Row(
             children: [
-              // Red dot
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                  border:
-                      Border.all(color: const Color(0xFFFECACA), width: 2),
-                ),
-              ),
-              const SizedBox(width: 12),
+              _locationRing(const Color(0xFF3B82F6)),
+              const SizedBox(width: 14),
               Expanded(
                 child: GestureDetector(
                   onTap: () => _selectLocation(false),
@@ -765,24 +652,24 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'To',
+                        'Drop-off location',
                         style: GoogleFonts.inter(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w400,
-                          color: const Color(0xFF9CA3AF),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF3B82F6),
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _destName.isEmpty ? 'Select drop on map' : _destName,
+                        _destName.isEmpty ? 'Select drop-off' : _destName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
-                          fontSize: 17,
+                          fontSize: 14,
                           fontWeight: FontWeight.w700,
                           color: _destName.isEmpty
                               ? AppColors.textHint
-                              : AppColors.textPrimary,
+                              : const Color(0xFF0F172A),
                         ),
                       ),
                     ],
@@ -791,350 +678,136 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
 
-          const SizedBox(height: 20),
+  Widget _locationRing(Color color) {
+    return Container(
+      width: 12,
+      height: 12,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white,
+        border: Border.all(color: color, width: 2.2),
+      ),
+    );
+  }
 
-          // Date and Passengers row
-          Row(
-            children: [
-              // Date
-              Expanded(
-                child: GestureDetector(
-                  onTap: _selectDate,
-                  behavior: HitTestBehavior.opaque,
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF5F5),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.calendar_today_outlined,
-                          color: AppColors.primary,
-                          size: 18,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Date',
-                              style: GoogleFonts.inter(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w400,
-                                color: const Color(0xFF9CA3AF),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              DateFormat('EEE, d MMM y').format(_selectedDate),
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Vertical divider
-              Container(
-                width: 1,
-                height: 40,
-                color: const Color(0xFFF0F0F0),
-              ),
-
-              const SizedBox(width: 16),
-
-              // Passengers
-              Expanded(
-                child: GestureDetector(
-                  onTap: _selectSeats,
-                  behavior: HitTestBehavior.opaque,
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF5F5),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.person_outline_rounded,
-                          color: AppColors.primary,
-                          size: 18,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Passengers',
-                              style: GoogleFonts.inter(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w400,
-                                color: const Color(0xFF9CA3AF),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '$_seats ${_seats == 1 ? 'Seat' : 'Seats'}',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+  Widget _verticalDots() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(
+        3,
+        (index) => Container(
+          width: 1.5,
+          height: 1.5,
+          margin: const EdgeInsets.symmetric(vertical: 1.5),
+          decoration: const BoxDecoration(
+            color: Color(0xFFCBD5E1),
+            shape: BoxShape.circle,
           ),
+        ),
+      ),
+    );
+  }
 
-          const SizedBox(height: 20),
-
-          // Search Rides button
-          Container(
-            width: double.infinity,
-            height: 52,
-            decoration: BoxDecoration(
-              gradient: AppColors.primaryGradient,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.3),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: ElevatedButton(
-              onPressed: _submitSearchCard,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.transparent,
-                shadowColor: Colors.transparent,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildParamCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.primary, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
-                    Icons.directions_car_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 10),
                   Text(
-                    'Search Rides',
+                    label,
                     style: GoogleFonts.inter(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: const Color(0xFF94A3B8),
                     ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF0F172A),
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ════════════════════════════════════════════════════
-  // POPULAR ROUTES SECTION
-  // ════════════════════════════════════════════════════
-  Widget _buildPopularRoutes() {
-    return Column(
-      children: [
-        // Section header
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Popular Routes',
-                style: GoogleFonts.inter(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              GestureDetector(
-                onTap: () => _searchRide(),
-                child: Text(
-                  'View all',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        // Route items with temple illustration
-        Stack(
-          children: [
-            // Temple illustration (bottom-right background)
-            Positioned(
-              right: -10,
-              bottom: 0,
-              child: Opacity(
-                opacity: 0.3,
-                child: Image.asset(
-                  'assets/images/passenger_bottom_bg.png',
-                  width: 180,
-                  height: 160,
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
-
-            // Route list
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                children: List.generate(_popularRoutes.length, (i) {
-                  final route = _popularRoutes[i];
-                  return Padding(
-                    padding: EdgeInsets.only(
-                      bottom: i == _popularRoutes.length - 1 ? 0 : 8,
-                    ),
-                    child: _buildRouteItem(
-                      fromCity: route['from']!,
-                      toCity: route['to']!,
-                      color: _routeAccents[i % _routeAccents.length],
-                    ),
-                  );
-                }),
-              ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.primary,
+              size: 20,
             ),
           ],
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildRouteItem({
-    required String fromCity,
-    required String toCity,
-    required Color color,
-  }) {
+  Widget _buildSearchButton() {
     return Container(
+      width: double.infinity,
+      height: 52,
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: AppColors.primaryGradient,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFF0F0F0),
-          width: 1,
-        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
+            color: AppColors.primary.withValues(alpha: 0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => _searchRide(from: fromCity, to: toCity),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                // Car icon with colored background
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(
-                    Icons.directions_car_rounded,
-                    color: color,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 14),
-
-                // Route details
-                Expanded(
-                  child: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          fromCity,
-                          style: GoogleFonts.inter(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 6),
-                        child: Icon(
-                          Icons.arrow_forward,
-                          color: Color(0xFF9CA3AF),
-                          size: 16,
-                        ),
-                      ),
-                      Flexible(
-                        child: Text(
-                          toCity,
-                          style: GoogleFonts.inter(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Chevron
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFFD1D5DB),
-                  size: 24,
-                ),
-              ],
-            ),
+      child: ElevatedButton(
+        onPressed: _submitSearchCard,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.search_rounded, color: Colors.white, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              'Search Rides',
+              style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1161,7 +834,7 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
                 ),
               ),
               TextButton(
-                onPressed: () => _searchRide(),
+                onPressed: _searchRide,
                 child: Text(
                   'See all',
                   style: GoogleFonts.inter(
@@ -1202,7 +875,7 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
                   ),
                   const SizedBox(height: 16),
                   TextButton(
-                    onPressed: () => _searchRide(),
+                    onPressed: _searchRide,
                     child: const Text('Search rides'),
                   ),
                 ],
@@ -1210,9 +883,7 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
             ),
           )
         else
-          ...(_popularRides
-              .take(5)
-              .map(
+          ...(_popularRides.take(5).map(
                 (ride) => RideCard(
                   ride: ride,
                   onTap: () => context.push(
@@ -1221,7 +892,6 @@ class _PassengerHomeScreenState extends ConsumerState<PassengerHomeScreen> {
                   ),
                 ),
               )),
-        const SizedBox(height: 80),
       ],
     );
   }

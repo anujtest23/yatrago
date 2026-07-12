@@ -10,12 +10,15 @@ import Vehicles from './pages/Vehicles';
 import Trips from './pages/Trips';
 import Bookings from './pages/Bookings';
 import Payouts from './pages/Payouts';
+import Reactivations from './pages/Reactivations';
+import Coupons from './pages/Coupons';
+import Tickets from './pages/Tickets';
+import Issues from './pages/Issues';
 import Sos from './pages/Sos';
 import Reports from './pages/Reports';
 import Config from './pages/Config';
 import AuditLogs from './pages/AuditLogs';
 import Admins from './pages/Admins';
-import TopUps from './pages/TopUps';
 import Fraud from './pages/Fraud';
 import Security from './pages/Security';
 
@@ -59,7 +62,10 @@ export default function App() {
         <Route path="/trips" element={<Trips />} />
         <Route path="/bookings" element={<Bookings />} />
         <Route path="/payouts" element={<Payouts />} />
-        <Route path="/topups" element={<TopUps />} />
+        <Route path="/reactivations" element={<Reactivations />} />
+        <Route path="/coupons" element={<Coupons />} />
+        <Route path="/tickets" element={<Tickets />} />
+        <Route path="/issues" element={<Issues />} />
         <Route path="/fraud" element={<Fraud />} />
         <Route path="/sos" element={<Sos />} />
         <Route path="/reports" element={<Reports />} />

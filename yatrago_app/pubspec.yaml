@@ -53,6 +53,7 @@ dependencies:
   riverpod_annotation: ^4.0.3
   flutter_map_animations: ^0.7.0
   crypto: ^3.0.7
+  webview_flutter: ^4.10.0
 
 
 dev_dependencies:

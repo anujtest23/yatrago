@@ -9,6 +9,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/widgets/location_picker_screen.dart';
 import '../../../core/widgets/route_map_widget.dart';
 import '../data/booking_api.dart';
+import '../../shared/coupons/data/coupon_api.dart';
 import '../models/ride_model.dart';
 
 class BookingSummaryScreen extends StatefulWidget {
@@ -25,7 +26,12 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   bool _isSubmitting = false;
   late RideModel _ride;
   late int _seats;
-  late double _total;
+  late double _total; // payable after any discount
+  late double _gross; // fare before discount
+  double _discount = 0;
+  String? _appliedCode;
+  bool _couponBusy = false;
+  String? _couponError;
 
   // Passenger pickup / drop-off. Defaults to the passenger's search points if
   // supplied, otherwise to the ride's origin/destination. Adjustable on a map.
@@ -41,7 +47,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     super.initState();
     _ride = RideModel.fromJson(widget.data['ride']);
     _seats = widget.data['seats'];
-    _total = widget.data['total'].toDouble();
+    _gross = widget.data['total'].toDouble();
+    _total = _gross;
 
     _pickupLat =
         (widget.data['pickupLat'] as num?)?.toDouble() ?? _ride.originLat;
@@ -57,6 +64,47 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   void dispose() {
     _couponController.dispose();
     super.dispose();
+  }
+
+  // Server-computed coupon preview. The app never calculates the discount —
+  // it displays what the backend returns and passes the raw code on booking.
+  Future<void> _applyCoupon() async {
+    final code = _couponController.text.trim();
+    if (code.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _couponBusy = true;
+      _couponError = null;
+    });
+    try {
+      final quote = await CouponApi.validate(code: code, amount: _gross);
+      if (!mounted) return;
+      setState(() {
+        _discount = (quote['discountAmount'] as num).toDouble();
+        _total = (quote['finalAmount'] as num).toDouble();
+        _appliedCode = (quote['code'] as String?) ?? code;
+        _couponBusy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _discount = 0;
+        _total = _gross;
+        _appliedCode = null;
+        _couponError = e.toString();
+        _couponBusy = false;
+      });
+    }
+  }
+
+  void _clearCoupon() {
+    setState(() {
+      _couponController.clear();
+      _discount = 0;
+      _total = _gross;
+      _appliedCode = null;
+      _couponError = null;
+    });
   }
 
   Future<void> _adjustPoint({required bool isPickup}) async {
@@ -88,7 +136,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   Future<void> _submitRequest() async {
     setState(() => _isSubmitting = true);
     try {
-      final coupon = _couponController.text.trim();
+      // Only send a coupon that was validated (applied). An unpreviewed code
+      // would just be re-validated (and possibly rejected) by the server.
       final result = await BookingApi.createBooking(
         rideId: _ride.id,
         seatsBooked: _seats,
@@ -98,7 +147,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         dropLat: _dropLat,
         dropLng: _dropLng,
         dropName: _dropName,
-        couponCode: coupon.isEmpty ? null : coupon,
+        couponCode: _appliedCode,
       );
       if (!mounted) return;
       context.pushReplacement(
@@ -478,28 +527,76 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           if (_showCoupon)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _couponController,
-                      textCapitalization: TextCapitalization.characters,
-                      decoration: const InputDecoration(
-                        hintText: 'Enter coupon code',
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _couponController,
+                          enabled: _appliedCode == null,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: const InputDecoration(
+                            hintText: 'Enter coupon code',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton(
+                        onPressed: _couponBusy
+                            ? null
+                            : (_appliedCode != null
+                                ? _clearCoupon
+                                : _applyCoupon),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                        ),
+                        child: _couponBusy
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white),
+                              )
+                            : Text(_appliedCode != null ? 'Remove' : 'Apply'),
+                      ),
+                    ],
+                  ),
+                  if (_couponError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _couponError!,
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.error,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: () {},
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
+                  if (_appliedCode != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle_rounded,
+                              size: 16, color: Color(0xFF16A34A)),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Coupon $_appliedCode applied — NPR ${_discount.toStringAsFixed(0)} off',
+                            style: GoogleFonts.inter(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF16A34A),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    child: const Text('Apply'),
-                  ),
                 ],
               ),
             ),

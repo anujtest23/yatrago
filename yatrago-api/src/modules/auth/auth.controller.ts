@@ -63,7 +63,11 @@ export class AuthController {
   }
 
   // Strict per-route limits on top of the Redis per-phone/per-IP counters.
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  // Limits are overridable via env for local e2e suites; production defaults
+  // (5 send / 10 verify per minute) are unchanged.
+  @Throttle({
+    default: { limit: Number(process.env.OTP_THROTTLE_LIMIT ?? 5), ttl: 60_000 },
+  })
   @Post('send-otp')
   @ApiOperation({ summary: 'Send OTP to phone number' })
   @ApiResponse({ status: 201, description: 'OTP sent successfully' })
@@ -71,7 +75,12 @@ export class AuthController {
     return this.authService.sendOtp(dto, this.ctx(req));
   }
 
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({
+    default: {
+      limit: Number(process.env.VERIFY_THROTTLE_LIMIT ?? 10),
+      ttl: 60_000,
+    },
+  })
   @Post('verify-otp')
   @ApiOperation({ summary: 'Verify OTP and login or create account' })
   @ApiResponse({ status: 201, description: 'Returns tokens and user object' })

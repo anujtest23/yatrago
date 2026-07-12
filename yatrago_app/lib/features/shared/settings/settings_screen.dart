@@ -6,7 +6,12 @@ import '../../../core/router/route_names.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/network/dio_client.dart';
 import '../../auth/data/auth_api.dart';
+import 'widgets/settings_ui.dart';
 
+/// Settings Hub — the long-term settings architecture. Yatri card/tile design
+/// on top of YatraGo's mode-aware hero and switch-mode banner. Static and
+/// backend-dependent sub-pages are reached via named routes; wired actions
+/// (profile, logout, mode switch) keep their existing behaviour.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -20,6 +25,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _activeMode = 'passenger';
 
   bool get _isDriver => _activeMode == 'driver';
+  Color get _accent => _isDriver ? AppColors.driver : AppColors.primary;
+  bool get _pendingDeletion => _user?['accountStatus'] == 'pending_deletion';
 
   @override
   void initState() {
@@ -76,6 +83,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _cancelDeletion() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel Deletion'),
+        content: const Text(
+          'Keep your account active and cancel the scheduled deletion?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not now'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cancel Deletion'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await AuthApi.cancelDeletion();
+      await _loadUser();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Account deletion cancelled.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> _logout() async {
     showDialog(
       context: context,
@@ -104,120 +147,326 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _deleteAccount() async {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Account'),
-        content: const Text(
-          'This will permanently deactivate your account. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              try {
-                await DioClient.instance.delete('/users/me');
-                await SecureStorage.clearAll();
-                if (!mounted) return;
-                context.go(RouteNames.login);
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text(e.toString())));
-              }
-            },
-            child: const Text(
-              'Delete',
-              style: TextStyle(color: AppColors.error),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bgWarm,
       body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            )
+          ? Center(child: CircularProgressIndicator(color: _accent))
           : SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               child: Column(
                 children: [
                   _buildHero(context),
                   const SizedBox(height: 16),
+                  if (_pendingDeletion) ...[
+                    _buildPendingDeletionBanner(),
+                    const SizedBox(height: 16),
+                  ],
                   _buildSwitchModeBanner(),
                   const SizedBox(height: 20),
-                  _Section(
-                    title: 'Account',
-                    children: [
-                      _SettingsTile(
-                        icon: Icons.person_outline_rounded,
-                        iconColor: AppColors.primary,
-                        title: 'Edit Profile',
-                        onTap: () => context.push(RouteNames.editProfile),
-                      ),
-                      _SettingsTile(
-                        icon: Icons.notifications_none_rounded,
-                        iconColor: AppColors.primary,
-                        title: 'Notifications',
-                        onTap: () => context.push(
-                          _isDriver
-                              ? RouteNames.driverNotifications
-                              : RouteNames.notifications,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Account ──
+                        const SettingsSectionLabel('Account'),
+                        SettingsCard(
+                          children: [
+                            SettingsTile(
+                              icon: Icons.person_outline_rounded,
+                              accent: _accent,
+                              title: 'Profile',
+                              subtitle: 'View your account details',
+                              onTap: () => context.push(RouteNames.profile),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.edit_outlined,
+                              accent: _accent,
+                              title: 'Edit Profile',
+                              subtitle: 'Update your name, email and photo',
+                              onTap: () => context.push(RouteNames.editProfile),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.devices_rounded,
+                              accent: _accent,
+                              title: 'Active Devices',
+                              subtitle: 'Manage your signed-in sessions',
+                              onTap: () =>
+                                  context.push(RouteNames.deviceSessions),
+                            ),
+                          ],
                         ),
-                      ),
-                      _SettingsTile(
-                        icon: Icons.devices_rounded,
-                        iconColor: AppColors.primary,
-                        title: 'Active Devices',
-                        onTap: () => context.push(RouteNames.deviceSessions),
-                        showDivider: false,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _Section(
-                    title: 'Account Actions',
-                    children: [
-                      _SettingsTile(
-                        icon: Icons.logout_rounded,
-                        iconColor: AppColors.warning,
-                        title: 'Logout',
-                        onTap: _logout,
-                      ),
-                      _SettingsTile(
-                        icon: Icons.delete_outline_rounded,
-                        iconColor: AppColors.error,
-                        title: 'Delete Account',
-                        titleColor: AppColors.error,
-                        onTap: _deleteAccount,
-                        showDivider: false,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 32),
-                  Text(
-                    'YatraGo v1.0.0',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: AppColors.textTertiary,
+                        const SizedBox(height: 16),
+
+                        // ── Preferences ──
+                        const SettingsSectionLabel('Preferences'),
+                        SettingsCard(
+                          children: [
+                            SettingsTile(
+                              icon: Icons.notifications_none_rounded,
+                              accent: _accent,
+                              title: 'Notifications',
+                              subtitle: 'Manage your ride and app alerts',
+                              onTap: () => context
+                                  .push(RouteNames.notificationSettings),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.lock_outline_rounded,
+                              accent: _accent,
+                              title: 'Privacy',
+                              subtitle: 'Control your data and visibility',
+                              onTap: () =>
+                                  context.push(RouteNames.privacySettings),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.contact_phone_outlined,
+                              accent: _accent,
+                              title: 'Emergency Contacts',
+                              subtitle: 'People we can reach in an emergency',
+                              onTap: () =>
+                                  context.push(RouteNames.emergencyContacts),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // ── Support ──
+                        const SettingsSectionLabel('Support'),
+                        SettingsCard(
+                          children: [
+                            SettingsTile(
+                              icon: Icons.help_outline_rounded,
+                              accent: _accent,
+                              title: 'Help & Support',
+                              subtitle: 'FAQs and ways to reach us',
+                              onTap: () =>
+                                  context.push(RouteNames.helpSupport),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.quiz_outlined,
+                              accent: _accent,
+                              title: 'FAQ',
+                              subtitle: 'Answers to common questions',
+                              onTap: () => context.push(RouteNames.faq),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.shield_outlined,
+                              accent: _accent,
+                              title: 'Safety',
+                              subtitle: 'Safety tips and emergency info',
+                              onTap: () => context.push(RouteNames.safety),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.mail_outline_rounded,
+                              accent: _accent,
+                              title: 'Contact Us',
+                              subtitle: 'Get in touch with support',
+                              onTap: () => context.push(RouteNames.contactUs),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.flag_outlined,
+                              accent: _accent,
+                              title: 'Report an Issue',
+                              subtitle: 'Tell us about a problem',
+                              onTap: () => context.push(RouteNames.reportIssue),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // ── About ──
+                        const SettingsSectionLabel('About'),
+                        SettingsCard(
+                          children: [
+                            SettingsTile(
+                              icon: Icons.info_outline_rounded,
+                              accent: _accent,
+                              title: 'About App',
+                              subtitle: 'Learn more about YatraGo',
+                              onTap: () => context.push(RouteNames.aboutApp),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.description_outlined,
+                              accent: _accent,
+                              title: 'Terms & Conditions',
+                              subtitle: 'Read our terms of service',
+                              onTap: () =>
+                                  context.push(RouteNames.termsConditions),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.privacy_tip_outlined,
+                              accent: _accent,
+                              title: 'Privacy Policy',
+                              subtitle: 'How we protect your data',
+                              onTap: () =>
+                                  context.push(RouteNames.privacyPolicy),
+                            ),
+                            const SettingsDivider(),
+                            SettingsTile(
+                              icon: Icons.code_rounded,
+                              accent: _accent,
+                              title: 'App Version',
+                              subtitle: 'You are using the latest version',
+                              trailing: Text(
+                                '1.0.0',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF64748B),
+                                ),
+                              ),
+                              onTap: () => context.push(RouteNames.appVersion),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // ── Account Actions ──
+                        const SettingsSectionLabel('Account Actions'),
+                        SettingsCard(
+                          children: [
+                            SettingsTile(
+                              icon: Icons.logout_rounded,
+                              accent: AppColors.warning,
+                              title: 'Logout',
+                              subtitle: 'Sign out from this device',
+                              onTap: _logout,
+                            ),
+                            const SettingsDivider(),
+                            if (_pendingDeletion)
+                              SettingsTile(
+                                icon: Icons.restore_rounded,
+                                accent: _accent,
+                                title: 'Cancel Deletion',
+                                subtitle: 'Keep your account active',
+                                onTap: _cancelDeletion,
+                              )
+                            else
+                              SettingsTile(
+                                icon: Icons.delete_outline_rounded,
+                                accent: AppColors.error,
+                                title: 'Delete Account',
+                                subtitle: 'Schedule your account for deletion',
+                                isDestructive: true,
+                                onTap: () async {
+                                  await context.push(
+                                    RouteNames.deleteAccount,
+                                    extra: _isDriver
+                                        ? RouteNames.driverSettings
+                                        : RouteNames.settings,
+                                  );
+                                  // Refresh so the pending banner appears if
+                                  // the user completed the deletion flow.
+                                  if (mounted) _loadUser();
+                                },
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 28),
+                        Center(
+                          child: Text(
+                            'YatraGo v1.0.0',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: AppColors.textTertiary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 32),
                 ],
               ),
             ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════
+  // PENDING DELETION BANNER — grace-period warning + cancel
+  // ════════════════════════════════════════════════════
+  Widget _buildPendingDeletionBanner() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.error.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.error.withValues(alpha: 0.35)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppColors.error,
+                  size: 22,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Account scheduled for deletion',
+                    style: GoogleFonts.inter(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your account will be permanently deleted after the 30-day grace '
+              'period. Bookings, rides, top-ups and payouts are disabled until '
+              'you cancel.',
+              style: GoogleFonts.inter(
+                fontSize: 12.5,
+                color: AppColors.textSecondary,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton(
+                onPressed: _cancelDeletion,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.error,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  'Cancel Deletion',
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -248,15 +497,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           Row(
             children: [
-              GestureDetector(
-                onTap: () => context.pop(),
-                child: const Icon(
-                  Icons.arrow_back_rounded,
-                  color: Colors.white,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
               Text(
                 'Settings',
                 style: GoogleFonts.poppins(
@@ -269,7 +509,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 20),
           GestureDetector(
-            onTap: () => context.push(RouteNames.editProfile),
+            onTap: () => context.push(RouteNames.profile),
             child: Row(
               children: [
                 CircleAvatar(
@@ -424,107 +664,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  final String title;
-  final List<Widget> children;
-
-  const _Section({required this.title, required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 20, bottom: 8),
-          child: Text(
-            title,
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textTertiary,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFF1F5F9)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Column(children: children),
-        ),
-      ],
-    );
-  }
-}
-
-class _SettingsTile extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final Color? titleColor;
-  final VoidCallback onTap;
-  final bool showDivider;
-
-  const _SettingsTile({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    this.titleColor,
-    required this.onTap,
-    this.showDivider = true,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        ListTile(
-          onTap: onTap,
-          leading: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 20, color: iconColor),
-          ),
-          title: Text(
-            title,
-            style: GoogleFonts.inter(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: titleColor ?? AppColors.textPrimary,
-            ),
-          ),
-          trailing: const Icon(
-            Icons.chevron_right_rounded,
-            color: AppColors.textTertiary,
-            size: 20,
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 4,
-          ),
-        ),
-        if (showDivider)
-          const Divider(height: 1, indent: 68, endIndent: 16),
-      ],
     );
   }
 }

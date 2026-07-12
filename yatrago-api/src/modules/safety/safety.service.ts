@@ -8,6 +8,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateSosDto } from './dto/create-sos.dto';
 import { CreateEmergencyContactDto } from './dto/create-emergency-contact.dto';
+import { UpdateEmergencyContactDto } from './dto/update-emergency-contact.dto';
 import { SmsService } from '../platform/sms.service';
 
 const MAX_EMERGENCY_CONTACTS = 3;
@@ -112,21 +113,33 @@ export class SafetyService {
   async getEmergencyContacts(userId: string) {
     const contacts = await this.prisma.emergencyContact.findMany({
       where: { userId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
     return { contacts, total: contacts.length };
   }
 
+  // Digits-only comparison so +9779800000000 and 9800000000 count as one.
+  private normalizePhone(phone: string): string {
+    return phone.replace(/\D/g, '').slice(-10);
+  }
+
   // ── POST /users/me/emergency-contacts ────────────────────────
   async addEmergencyContact(userId: string, dto: CreateEmergencyContactDto) {
-    const count = await this.prisma.emergencyContact.count({
+    const existing = await this.prisma.emergencyContact.findMany({
       where: { userId },
     });
-    if (count >= MAX_EMERGENCY_CONTACTS) {
+    if (existing.length >= MAX_EMERGENCY_CONTACTS) {
       throw new BadRequestException(
         `You can only have up to ${MAX_EMERGENCY_CONTACTS} emergency contacts`,
       );
     }
+    const incoming = this.normalizePhone(dto.phoneNumber);
+    if (existing.some((c) => this.normalizePhone(c.phoneNumber) === incoming)) {
+      throw new BadRequestException('This phone number is already a contact');
+    }
+
+    const nextOrder =
+      existing.reduce((max, c) => Math.max(max, c.sortOrder), -1) + 1;
 
     const contact = await this.prisma.emergencyContact.create({
       data: {
@@ -134,14 +147,80 @@ export class SafetyService {
         fullName: dto.fullName,
         phoneNumber: dto.phoneNumber,
         relationship: dto.relationship,
+        sortOrder: nextOrder,
       },
     });
 
     return { message: 'Emergency contact added', contact };
   }
 
+  // ── PATCH /users/me/emergency-contacts/:id ───────────────────
+  async updateEmergencyContact(
+    userId: string,
+    contactId: string,
+    dto: UpdateEmergencyContactDto,
+  ) {
+    const contact = await this.getOwnedContact(userId, contactId);
+
+    if (dto.phoneNumber) {
+      const incoming = this.normalizePhone(dto.phoneNumber);
+      const clash = await this.prisma.emergencyContact.findFirst({
+        where: { userId, id: { not: contactId } },
+      });
+      if (
+        clash &&
+        this.normalizePhone(clash.phoneNumber) === incoming
+      ) {
+        throw new BadRequestException('This phone number is already a contact');
+      }
+    }
+
+    const updated = await this.prisma.emergencyContact.update({
+      where: { id: contact.id },
+      data: {
+        fullName: dto.fullName ?? undefined,
+        phoneNumber: dto.phoneNumber ?? undefined,
+        relationship: dto.relationship ?? undefined,
+      },
+    });
+    return { message: 'Emergency contact updated', contact: updated };
+  }
+
+  // ── PATCH /users/me/emergency-contacts/reorder ───────────────
+  async reorderEmergencyContacts(userId: string, orderedIds: string[]) {
+    const owned = await this.prisma.emergencyContact.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    const ownedIds = new Set(owned.map((c) => c.id));
+    if (
+      orderedIds.length !== owned.length ||
+      !orderedIds.every((id) => ownedIds.has(id))
+    ) {
+      throw new BadRequestException(
+        'orderedIds must contain exactly your current contact IDs',
+      );
+    }
+
+    await this.prisma.$transaction(
+      orderedIds.map((id, index) =>
+        this.prisma.emergencyContact.update({
+          where: { id },
+          data: { sortOrder: index },
+        }),
+      ),
+    );
+    return this.getEmergencyContacts(userId);
+  }
+
   // ── DELETE /users/me/emergency-contacts/:id ──────────────────
   async removeEmergencyContact(userId: string, contactId: string) {
+    const contact = await this.getOwnedContact(userId, contactId);
+    await this.prisma.emergencyContact.delete({ where: { id: contact.id } });
+    return { message: 'Emergency contact removed' };
+  }
+
+  private async getOwnedContact(userId: string, contactId: string) {
     const contact = await this.prisma.emergencyContact.findUnique({
       where: { id: contactId },
     });
@@ -151,9 +230,6 @@ export class SafetyService {
         'This emergency contact does not belong to you',
       );
     }
-
-    await this.prisma.emergencyContact.delete({ where: { id: contactId } });
-
-    return { message: 'Emergency contact removed' };
+    return contact;
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/router/route_names.dart';
 import '../data/auth_api.dart';
+import '../../shared/chat/chat_unread.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String phoneNumber;
@@ -119,6 +121,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
       if (!mounted) return;
 
       final isNewUser = data['isNewUser'] == true;
+
+      // Session established — bring chat online and seed the unread badge.
+      unawaited(ChatUnread.instance.start());
 
       if (isNewUser) {
         context.go(RouteNames.completeProfile);

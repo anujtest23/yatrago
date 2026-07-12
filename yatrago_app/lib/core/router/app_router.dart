@@ -36,10 +36,32 @@ import '../../features/driver/my_rides/contact_passenger_screen.dart';
 import '../../features/driver/trip_summary/trip_summary_screen.dart';
 import '../../features/driver/trip_summary/rate_passenger_screen.dart';
 import '../../features/driver/wallet/driver_wallet_screen.dart';
+import '../../features/driver/wallet/topup_screen.dart';
+import '../../features/driver/wallet/topup_history_screen.dart';
+import '../../features/shared/chat/conversations_screen.dart';
+import '../../features/shared/chat/chat_screen.dart';
+import '../../core/constants/app_colors.dart';
 import '../../features/shared/notifications/notifications_screen.dart';
 import '../../features/shared/settings/settings_screen.dart';
 import '../../features/shared/settings/device_sessions_screen.dart';
 import '../../features/shared/settings/edit_profile_screen.dart';
+import '../../features/shared/settings/pages/profile_screen.dart';
+import '../../features/shared/settings/pages/about_app_screen.dart';
+import '../../features/shared/settings/pages/help_support_screen.dart';
+import '../../features/shared/settings/pages/faq_screen.dart';
+import '../../features/shared/settings/pages/privacy_policy_screen.dart';
+import '../../features/shared/settings/pages/terms_conditions_screen.dart';
+import '../../features/shared/settings/pages/safety_screen.dart';
+import '../../features/shared/settings/pages/app_version_screen.dart';
+import '../../features/shared/settings/pages/notification_settings_screen.dart';
+import '../../features/shared/settings/pages/privacy_settings_screen.dart';
+import '../../features/shared/settings/pages/emergency_contacts_screen.dart';
+import '../../features/shared/settings/pages/contact_us_screen.dart';
+import '../../features/shared/settings/pages/report_issue_screen.dart';
+import '../../features/shared/settings/pages/coming_soon_screen.dart';
+import '../../features/shared/settings/pages/delete_account_screen.dart';
+import '../../features/shared/verification/sensitive_action_otp_screen.dart';
+import '../../features/shared/verification/verification_success_screen.dart';
 import '../../features/shared/tracking/trip_tracking_screen.dart';
 import 'route_names.dart';
 
@@ -113,6 +135,10 @@ final appRouter = GoRouter(
           builder: (_, __) => const MyRidesScreen(),
         ),
         GoRoute(
+          path: RouteNames.passengerMessages,
+          builder: (_, __) => const ConversationsScreen(),
+        ),
+        GoRoute(
           path: RouteNames.notifications,
           builder: (_, __) => const NotificationsScreen(),
         ),
@@ -148,12 +174,16 @@ final appRouter = GoRouter(
           builder: (_, __) => const IncomingBookingsScreen(),
         ),
         GoRoute(
+          path: RouteNames.driverMessages,
+          builder: (_, __) => const ConversationsScreen(),
+        ),
+        GoRoute(
           path: RouteNames.driverSettings,
           builder: (_, __) => const SettingsScreen(),
         ),
         GoRoute(
           path: RouteNames.driverNotifications,
-          builder: (_, __) => const NotificationsScreen(),
+          builder: (_, __) => const NotificationsScreen(isDriver: true),
         ),
         GoRoute(
           path: RouteNames.driverWallet,
@@ -229,6 +259,14 @@ final appRouter = GoRouter(
 
     // ── Driver detail screens (outside shell — full screen) ─────
     GoRoute(
+      path: RouteNames.topUp,
+      builder: (_, __) => const TopUpScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.topupHistory,
+      builder: (_, __) => const TopupHistoryScreen(),
+    ),
+    GoRoute(
       path: RouteNames.ridePublished,
       builder: (context, state) {
         final trip = state.extra as Map<String, dynamic>;
@@ -283,6 +321,20 @@ final appRouter = GoRouter(
 
     // ── Shared screens ───────────────────────────────────────────
     GoRoute(
+      path: RouteNames.chat,
+      builder: (context, state) {
+        final data = state.extra as Map<String, dynamic>;
+        return ChatScreen(
+          bookingId: data['bookingId'] as String,
+          title: data['title'] as String,
+          subtitle: data['subtitle'] as String? ?? '',
+          accent: (data['accentIsDriver'] as bool? ?? false)
+              ? AppColors.driver
+              : AppColors.primary,
+        );
+      },
+    ),
+    GoRoute(
       path: RouteNames.editProfile,
       builder: (_, __) => const EditProfileScreen(),
     ),
@@ -301,6 +353,91 @@ final appRouter = GoRouter(
           destName: data['destName'] as String,
         );
       },
+    ),
+
+    // ── Settings sub-pages (full-screen; shared by both modes) ──
+    GoRoute(
+      path: RouteNames.profile,
+      builder: (_, __) => const ProfileScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.notificationSettings,
+      builder: (_, __) => const NotificationSettingsScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.privacySettings,
+      builder: (_, __) => const PrivacySettingsScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.emergencyContacts,
+      builder: (_, __) => const EmergencyContactsScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.contactUs,
+      builder: (_, __) => const ContactUsScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.reportIssue,
+      builder: (context, state) {
+        final extra = state.extra;
+        final ids = extra is Map ? extra : const {};
+        return ReportIssueScreen(
+          bookingId: ids['bookingId'] as String?,
+          rideId: ids['rideId'] as String?,
+        );
+      },
+    ),
+    GoRoute(
+      path: RouteNames.aboutApp,
+      builder: (_, __) => const AboutAppScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.helpSupport,
+      builder: (_, __) => const HelpSupportScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.faq,
+      builder: (_, __) => const FaqScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.privacyPolicy,
+      builder: (_, __) => const PrivacyPolicyScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.termsConditions,
+      builder: (_, __) => const TermsConditionsScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.safety,
+      builder: (_, __) => const SafetyScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.appVersion,
+      builder: (_, __) => const AppVersionScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.comingSoon,
+      builder: (context, state) => ComingSoonScreen(
+        title: state.extra as String? ?? 'Coming Soon',
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.deleteAccount,
+      builder: (context, state) => DeleteAccountScreen(
+        returnRoute: state.extra as String? ?? RouteNames.settings,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.sensitiveOtp,
+      builder: (context, state) => SensitiveActionOtpScreen(
+        args: state.extra as SensitiveOtpArgs,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.verificationSuccess,
+      builder: (context, state) => VerificationSuccessScreen(
+        args: state.extra as VerificationSuccessArgs,
+      ),
     ),
   ],
 );

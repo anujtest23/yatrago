@@ -39,6 +39,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found or deactivated');
     }
 
+    // A deleted account must never authenticate — its sessions are revoked on
+    // deletion, but reject defensively in case a live token survives. Reuse of
+    // the phone goes through the admin reactivation flow, not a bearer token.
+    if (user.accountStatus === 'deleted') {
+      throw new UnauthorizedException('Account deleted');
+    }
+
+    // pending_deletion accounts stay authenticated: the user may log in and
+    // browse during the 30-day grace period. Mutating actions are blocked by
+    // PendingDeletionGuard, not here.
     return user; // attached to request.user
   }
 }

@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Patch,
-  Delete,
   Body,
   Post,
   UseGuards,
@@ -28,6 +27,9 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { SwitchModeDto } from './dto/switch-mode.dto';
 import { RegisterDeviceTokenDto } from './dto/register-device-token.dto';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
+import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
+import { UpdatePrivacySettingsDto } from './dto/update-privacy-settings.dto';
+import { ConfirmDeletionDto } from './dto/confirm-deletion.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -124,17 +126,64 @@ export class UsersController {
     return this.usersService.updateNotificationSettings(user.id, dto);
   }
 
+  @Get('me/notification-preferences')
+  @ApiOperation({ summary: 'Get channel×category notification preferences' })
+  getNotificationPreferences(@CurrentUser() user: any) {
+    return this.usersService.getNotificationPreferences(user.id);
+  }
+
+  @Patch('me/notification-preferences')
+  @ApiOperation({ summary: 'Update channel×category notification preferences' })
+  updateNotificationPreferences(
+    @CurrentUser() user: any,
+    @Body() dto: UpdateNotificationPreferencesDto,
+  ) {
+    return this.usersService.updateNotificationPreferences(user.id, dto);
+  }
+
+  @Get('me/privacy-settings')
+  @ApiOperation({ summary: 'Get privacy settings' })
+  getPrivacySettings(@CurrentUser() user: any) {
+    return this.usersService.getPrivacySettings(user.id);
+  }
+
+  @Patch('me/privacy-settings')
+  @ApiOperation({ summary: 'Update privacy settings' })
+  updatePrivacySettings(
+    @CurrentUser() user: any,
+    @Body() dto: UpdatePrivacySettingsDto,
+  ) {
+    return this.usersService.updatePrivacySettings(user.id, dto);
+  }
+
   @Get('me/export')
   @ApiOperation({ summary: 'Export all personal data held about this account' })
   exportData(@CurrentUser() user: any) {
     return this.usersService.exportData(user.id);
   }
 
-  @Delete('me')
+  @Post('me/deletion/request-otp')
   @ApiOperation({
-    summary: 'Request account deletion (soft delete with 30-day grace period)',
+    summary: 'Send an OTP to confirm account deletion',
   })
-  deleteMe(@CurrentUser() user: any) {
-    return this.usersService.deleteMe(user.id);
+  requestDeletionOtp(@CurrentUser() user: any) {
+    return this.usersService.requestDeletionOtp(user.id);
+  }
+
+  @Post('me/deletion/confirm')
+  @ApiOperation({
+    summary:
+      'Confirm account deletion with OTP (enters 30-day grace period; login+browse allowed, actions blocked)',
+  })
+  confirmDeletion(@CurrentUser() user: any, @Body() dto: ConfirmDeletionDto) {
+    return this.usersService.confirmDeletion(user.id, dto.otp);
+  }
+
+  @Post('me/deletion/cancel')
+  @ApiOperation({
+    summary: 'Cancel a pending account deletion and reactivate the account',
+  })
+  cancelDeletion(@CurrentUser() user: any) {
+    return this.usersService.cancelDeletion(user.id);
   }
 }

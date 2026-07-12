@@ -46,6 +46,34 @@ class RouteNames {
   static const String notifications = '/notifications';
   static const String tripTracking = '/trip-tracking';
 
+  // Settings sub-pages (full-screen; reachable from both passenger and driver
+  // settings hubs).
+  static const String profile = '/settings/profile';
+  static const String notificationSettings = '/settings/notification-settings';
+  static const String aboutApp = '/settings/about';
+  static const String helpSupport = '/settings/help';
+  static const String faq = '/settings/faq';
+  static const String privacyPolicy = '/settings/privacy-policy';
+  static const String termsConditions = '/settings/terms';
+  static const String safety = '/settings/safety';
+  static const String appVersion = '/settings/app-version';
+  static const String comingSoon = '/settings/coming-soon';
+  static const String privacySettings = '/settings/privacy';
+  static const String emergencyContacts = '/settings/emergency-contacts';
+  static const String contactUs = '/settings/contact-us';
+  static const String reportIssue = '/settings/report-issue';
+
+  // Delete Account (UI flow only; backend deletion is a separate task).
+  static const String deleteAccount = '/settings/delete-account';
+  static const String sensitiveOtp = '/verify-action';
+  static const String verificationSuccess = '/verify-action/success';
+
+  // Chat / Messages. The Messages tab lives inside each shell (so the nav bar
+  // stays visible); the thread itself is full-screen (outside the shells).
+  static const String passengerMessages = '/passenger/messages';
+  static const String driverMessages = '/driver/messages';
+  static const String chat = '/chat';
+
   // Driver-scoped copies of shared screens (registered inside DriverShell so
   // the driver bottom nav bar stays visible instead of falling back to the
   // passenger shell, which is where the shared /settings and /notifications
@@ -53,4 +81,9 @@ class RouteNames {
   static const String driverSettings = '/driver/settings';
   static const String driverNotifications = '/driver/notifications';
   static const String driverWallet = '/driver/wallet';
+
+  // Wallet top-up (full-screen; reachable from the wallet screen and from the
+  // insufficient-balance dialog when posting a ride).
+  static const String topUp = '/driver/top-up';
+  static const String topupHistory = '/driver/top-up/history';
 }

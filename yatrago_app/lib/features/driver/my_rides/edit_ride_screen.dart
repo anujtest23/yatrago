@@ -131,9 +131,9 @@ class _EditRideScreenState extends State<EditRideScreen> {
 
                           const SizedBox(height: 24),
 
-                          // Departure time
+                          // Departure date & time
                           const Text(
-                            'Departure Time',
+                            'Departure Date & Time',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
@@ -143,11 +143,15 @@ class _EditRideScreenState extends State<EditRideScreen> {
                           const SizedBox(height: 8),
                           GestureDetector(
                             onTap: () async {
-                              final time = await showTimePicker(
+                              final base = _departureAt ?? DateTime.now();
+                              final now = DateTime.now();
+                              final date = await showDatePicker(
                                 context: context,
-                                initialTime: TimeOfDay.fromDateTime(
-                                  _departureAt ?? DateTime.now(),
-                                ),
+                                initialDate:
+                                    base.isBefore(now) ? now : base,
+                                firstDate: now,
+                                lastDate:
+                                    now.add(const Duration(days: 365)),
                                 builder: (ctx, child) => Theme(
                                   data: Theme.of(ctx).copyWith(
                                     colorScheme: const ColorScheme.light(
@@ -157,12 +161,26 @@ class _EditRideScreenState extends State<EditRideScreen> {
                                   child: child!,
                                 ),
                               );
-                              if (time != null && _departureAt != null) {
+                              if (date == null) return;
+                              if (!mounted) return;
+                              final time = await showTimePicker(
+                                context: context,
+                                initialTime: TimeOfDay.fromDateTime(base),
+                                builder: (ctx, child) => Theme(
+                                  data: Theme.of(ctx).copyWith(
+                                    colorScheme: const ColorScheme.light(
+                                      primary: AppColors.driver,
+                                    ),
+                                  ),
+                                  child: child!,
+                                ),
+                              );
+                              if (time != null) {
                                 setState(() {
                                   _departureAt = DateTime(
-                                    _departureAt!.year,
-                                    _departureAt!.month,
-                                    _departureAt!.day,
+                                    date.year,
+                                    date.month,
+                                    date.day,
                                     time.hour,
                                     time.minute,
                                   );
@@ -188,7 +206,7 @@ class _EditRideScreenState extends State<EditRideScreen> {
                                         ? DateFormat(
                                             'EEE, d MMM • h:mm a',
                                           ).format(_departureAt!)
-                                        : 'Select time',
+                                        : 'Select date & time',
                                     style: const TextStyle(fontSize: 14),
                                   ),
                                 ],

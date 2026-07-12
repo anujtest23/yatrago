@@ -84,11 +84,54 @@ enum BookingStatus {
   expired
 }
 
+enum AccountStatus {
+  active
+  pending_deletion
+  deleted
+}
+
+enum ReactivationStatus {
+  pending
+  approved
+  rejected
+}
+
 enum PaymentStatus {
   pending
   paid
   refunded
   failed
+}
+
+enum DiscountType {
+  percentage
+  fixed
+}
+
+enum CouponAudience {
+  all
+  passenger
+  driver
+}
+
+enum RedemptionStatus {
+  applied
+  reversed
+}
+
+enum SupportStatus {
+  open
+  in_progress
+  closed
+}
+
+enum IssueCategory {
+  driver
+  passenger
+  payment
+  safety
+  technical
+  other
 }
 
 enum PaymentMethod {
@@ -147,44 +190,173 @@ enum ReportStatus {
 // ─── MODELS ──────────────────────────────────────────────────
 
 model User {
-  id               String    @id @default(uuid())
-  phoneNumber      String    @unique @map("phone_number")
-  fullName         String?   @map("full_name")
-  profilePhotoUrl  String?   @map("profile_photo_url")
-  gender           Gender?
-  dateOfBirth      DateTime? @map("date_of_birth")
-  language         String    @default("ne")
-  activeMode       UserMode  @default(passenger) @map("active_mode")
-  role             UserRole  @default(user)
-  isVerified       Boolean   @default(false) @map("is_verified")
-  isActive         Boolean   @default(true) @map("is_active")
-  notificationSettings Json? @map("notification_settings")
-  deletionRequestedAt  DateTime? @map("deletion_requested_at")
+  id                      String        @id @default(uuid())
+  phoneNumber             String        @unique @map("phone_number")
+  fullName                String?       @map("full_name")
+  profilePhotoUrl         String?       @map("profile_photo_url")
+  gender                  Gender?
+  dateOfBirth             DateTime?     @map("date_of_birth")
+  language                String        @default("ne")
+  activeMode              UserMode      @default(passenger) @map("active_mode")
+  role                    UserRole      @default(user)
+  isVerified              Boolean       @default(false) @map("is_verified")
+  isActive                Boolean       @default(true) @map("is_active")
+  // Lifecycle status, distinct from isActive (admin suspend). active →
+  // pending_deletion (30-day grace, login+browse allowed, mutations blocked)
+  // → deleted (retained for phone reuse detection / admin-approved restore).
+  accountStatus           AccountStatus @default(active) @map("account_status")
+  // Legacy per-category on/off switches (see notification-preferences.ts).
+  notificationSettings    Json?         @map("notification_settings")
+  // Richer channel×category matrix (push/email/sms) — see notification-channel-preferences.ts.
+  notificationPreferences Json?         @map("notification_preferences")
+  // Profile/phone/ride visibility + marketing/analytics consent.
+  privacySettings         Json?         @map("privacy_settings")
+  deletionRequestedAt     DateTime?     @map("deletion_requested_at")
   // TOTP MFA (admin accounts). Secret is AES-256-GCM encrypted at rest.
-  totpSecret       String?   @map("totp_secret")
-  totpEnabledAt    DateTime? @map("totp_enabled_at")
+  totpSecret              String?       @map("totp_secret")
+  totpEnabledAt           DateTime?     @map("totp_enabled_at")
   // Cumulative fraud score; FraudEvent rows are the ledger behind it.
-  fraudScore       Int       @default(0) @map("fraud_score")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  fraudScore              Int           @default(0) @map("fraud_score")
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
 
-  driverProfile    DriverProfile?
-  bookings         Booking[]
-  sentMessages     Message[]      @relation("sender")
-  notifications    Notification[]
-  deviceTokens     DeviceToken[]
-  emergencyContacts EmergencyContact[]
-  reportsGiven     UserReport[]   @relation("reporter")
-  reportsReceived  UserReport[]   @relation("reported")
-  ratingsGiven     Rating[]       @relation("rater")
-  ratingsReceived  Rating[]       @relation("ratee")
-  authSessions     AuthSession[]
-  wallet           Wallet?
-  sosAlerts        SosAlert[]
-  topUpRequests    TopUpRequest[]
-  fraudEvents      FraudEvent[]
+  driverProfile        DriverProfile?
+  bookings             Booking[]
+  sentMessages         Message[]             @relation("sender")
+  notifications        Notification[]
+  deviceTokens         DeviceToken[]
+  emergencyContacts    EmergencyContact[]
+  reportsGiven         UserReport[]          @relation("reporter")
+  reportsReceived      UserReport[]          @relation("reported")
+  ratingsGiven         Rating[]              @relation("rater")
+  ratingsReceived      Rating[]              @relation("ratee")
+  authSessions         AuthSession[]
+  wallet               Wallet?
+  sosAlerts            SosAlert[]
+  walletTopups         WalletTopup[]
+  fraudEvents          FraudEvent[]
+  reactivationRequests ReactivationRequest[] @relation("previousUser")
+  couponRedemptions    CouponRedemption[]
+  supportTickets       SupportTicket[]
+  issueReports         IssueReport[]
 
+  @@index([accountStatus])
   @@map("users")
+}
+
+// A previously-deleted phone number attempting to log back in. Blocks
+// automatic account creation; an admin must approve before the number can
+// be used again (restores the previous account for continuity).
+model ReactivationRequest {
+  id              String             @id @default(uuid())
+  phoneNumber     String             @map("phone_number")
+  previousUserId  String             @map("previous_user_id")
+  status          ReactivationStatus @default(pending)
+  rejectionReason String?            @map("rejection_reason")
+  requestedAt     DateTime           @default(now()) @map("requested_at")
+  reviewedAt      DateTime?          @map("reviewed_at")
+  reviewedBy      String?            @map("reviewed_by")
+
+  previousUser User @relation("previousUser", fields: [previousUserId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([phoneNumber])
+  @@map("reactivation_requests")
+}
+
+// Admin-managed discount codes. All validation and discount math happens
+// server-side (CouponsService) — the client never computes a discount.
+model Coupon {
+  id            String         @id @default(uuid())
+  code          String         @unique
+  description   String?
+  discountType  DiscountType   @map("discount_type")
+  // Percentage points (0-100) when percentage, else an absolute NPR amount.
+  discountValue Float          @map("discount_value")
+  // Cap for percentage coupons (ignored for fixed). Null = uncapped.
+  maxDiscount   Float?         @map("max_discount")
+  // Minimum eligible amount (e.g. ride fare) for the coupon to apply.
+  minAmount     Float          @default(0) @map("min_amount")
+  audience      CouponAudience @default(all)
+  // Global redemption cap across all users. Null = unlimited.
+  usageLimit    Int?           @map("usage_limit")
+  // Per-user redemption cap. Null = unlimited.
+  perUserLimit  Int?           @map("per_user_limit")
+  isActive      Boolean        @default(true) @map("is_active")
+  validFrom     DateTime?      @map("valid_from")
+  validUntil    DateTime?      @map("valid_until")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  redemptions CouponRedemption[]
+
+  @@index([isActive])
+  @@map("coupons")
+}
+
+// One redemption ledger row per applied coupon. `reversed` rows (booking
+// cancelled/rejected/expired) do not count toward usage limits.
+model CouponRedemption {
+  id             String           @id @default(uuid())
+  couponId       String           @map("coupon_id")
+  userId         String           @map("user_id")
+  bookingId      String?          @map("booking_id")
+  discountAmount Float            @map("discount_amount")
+  status         RedemptionStatus @default(applied)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  reversedAt     DateTime?        @map("reversed_at")
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId])
+  @@index([couponId, status])
+  @@index([userId])
+  @@map("coupon_redemptions")
+}
+
+// "Contact Us" — general support tickets, not tied to a ride.
+model SupportTicket {
+  id          String        @id @default(uuid())
+  userId      String        @map("user_id")
+  category    String
+  subject     String
+  description String
+  attachments String[]      @default([])
+  status      SupportStatus @default(open)
+  adminReply  String?       @map("admin_reply")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  resolvedAt  DateTime?     @map("resolved_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+// "Report an Issue" — ride/booking-specific problem reports.
+model IssueReport {
+  id          String        @id @default(uuid())
+  userId      String        @map("user_id")
+  bookingId   String?       @map("booking_id")
+  rideId      String?       @map("ride_id")
+  category    IssueCategory
+  description String
+  attachments String[]      @default([])
+  status      ReportStatus  @default(open)
+  assignedTo  String?       @map("assigned_to")
+  resolution  String?
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  resolvedAt  DateTime?     @map("resolved_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("issue_reports")
 }
 
 model AuthSession {
@@ -247,15 +419,15 @@ model DriverProfile {
 }
 
 model DriverDocument {
-  id              String     @id @default(uuid())
-  driverId        String     @map("driver_id")
-  docType         DocType    @map("doc_type")
-  fileUrl         String     @map("file_url")
-  status          DocStatus  @default(pending)
-  rejectionReason String?    @map("rejection_reason")
-  expiryDate      DateTime?  @map("expiry_date")
-  reviewedAt      DateTime?  @map("reviewed_at")
-  createdAt       DateTime   @default(now()) @map("created_at")
+  id              String    @id @default(uuid())
+  driverId        String    @map("driver_id")
+  docType         DocType   @map("doc_type")
+  fileUrl         String    @map("file_url")
+  status          DocStatus @default(pending)
+  rejectionReason String?   @map("rejection_reason")
+  expiryDate      DateTime? @map("expiry_date")
+  reviewedAt      DateTime? @map("reviewed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   driver DriverProfile @relation(fields: [driverId], references: [id], onDelete: Cascade)
 
@@ -297,32 +469,32 @@ model VehicleDocument {
 }
 
 model Ride {
-  id              String      @id @default(uuid())
-  driverId        String      @map("driver_id")
-  vehicleId       String      @map("vehicle_id")
-  originName      String      @map("origin_name")
-  originLat       Float       @map("origin_lat")
-  originLng       Float       @map("origin_lng")
-  originCity      String?     @map("origin_city")
-  originState     String?     @map("origin_state")
-  destName        String      @map("dest_name")
-  destLat         Float       @map("dest_lat")
-  destLng         Float       @map("dest_lng")
-  destCity        String?     @map("dest_city")
-  destState       String?     @map("dest_state")
-  departureAt     DateTime    @map("departure_at")
-  totalSeats      Int         @map("total_seats")
-  availableSeats  Int         @map("available_seats")
-  pricePerSeat    Float       @map("price_per_seat")
-  status          RideStatus  @default(published)
-  womenOnly       Boolean     @default(false) @map("women_only")
-  smokingPref     SmokingPref @default(no_smoking) @map("smoking_pref")
-  luggagePref     LuggagePref @default(any) @map("luggage_pref")
-  notes           String?
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
-  startedAt       DateTime?   @map("started_at")
-  completedAt     DateTime?   @map("completed_at")
+  id             String      @id @default(uuid())
+  driverId       String      @map("driver_id")
+  vehicleId      String      @map("vehicle_id")
+  originName     String      @map("origin_name")
+  originLat      Float       @map("origin_lat")
+  originLng      Float       @map("origin_lng")
+  originCity     String?     @map("origin_city")
+  originState    String?     @map("origin_state")
+  destName       String      @map("dest_name")
+  destLat        Float       @map("dest_lat")
+  destLng        Float       @map("dest_lng")
+  destCity       String?     @map("dest_city")
+  destState      String?     @map("dest_state")
+  departureAt    DateTime    @map("departure_at")
+  totalSeats     Int         @map("total_seats")
+  availableSeats Int         @map("available_seats")
+  pricePerSeat   Float       @map("price_per_seat")
+  status         RideStatus  @default(published)
+  womenOnly      Boolean     @default(false) @map("women_only")
+  smokingPref    SmokingPref @default(no_smoking) @map("smoking_pref")
+  luggagePref    LuggagePref @default(any) @map("luggage_pref")
+  notes          String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  startedAt      DateTime?   @map("started_at")
+  completedAt    DateTime?   @map("completed_at")
 
   driver      DriverProfile      @relation(fields: [driverId], references: [id])
   vehicle     Vehicle            @relation(fields: [vehicleId], references: [id])
@@ -370,8 +542,8 @@ model Booking {
   cancelledAt        DateTime?     @map("cancelled_at")
   completedAt        DateTime?     @map("completed_at")
 
-  ride      Ride      @relation(fields: [rideId], references: [id])
-  passenger User      @relation(fields: [passengerId], references: [id])
+  ride      Ride         @relation(fields: [rideId], references: [id])
+  passenger User         @relation(fields: [passengerId], references: [id])
   payments  Payment[]
   messages  Message[]
   ratings   Rating[]
@@ -399,17 +571,17 @@ model Payment {
 }
 
 model Payout {
-  id               String   @id @default(uuid())
-  driverId         String   @map("driver_id")
-  grossAmount      Float    @map("gross_amount")
-  commissionRate   Float    @map("commission_rate")
-  commissionAmount Float    @map("commission_amount")
-  netAmount        Float    @map("net_amount")
+  id               String    @id @default(uuid())
+  driverId         String    @map("driver_id")
+  grossAmount      Float     @map("gross_amount")
+  commissionRate   Float     @map("commission_rate")
+  commissionAmount Float     @map("commission_amount")
+  netAmount        Float     @map("net_amount")
   method           String
-  accountReference String   @map("account_reference")
-  status           String   @default("pending")
-  failureReason    String?  @map("failure_reason")
-  requestedAt      DateTime @default(now()) @map("requested_at")
+  accountReference String    @map("account_reference")
+  status           String    @default("pending")
+  failureReason    String?   @map("failure_reason")
+  requestedAt      DateTime  @default(now()) @map("requested_at")
   processedAt      DateTime? @map("processed_at")
 
   driver DriverProfile @relation(fields: [driverId], references: [id])
@@ -466,8 +638,8 @@ model Message {
   isRead     Boolean  @default(false) @map("is_read")
   sentAt     DateTime @default(now()) @map("sent_at")
 
-  booking  Booking @relation(fields: [bookingId], references: [id])
-  sender   User    @relation("sender", fields: [senderId], references: [id])
+  booking Booking @relation(fields: [bookingId], references: [id])
+  sender  User    @relation("sender", fields: [senderId], references: [id])
 
   @@map("messages")
 }
@@ -500,15 +672,17 @@ model DeviceToken {
 }
 
 model EmergencyContact {
-  id           String  @id @default(uuid())
-  userId       String  @map("user_id")
-  fullName     String  @map("full_name")
-  phoneNumber  String  @map("phone_number")
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  fullName     String   @map("full_name")
+  phoneNumber  String   @map("phone_number")
   relationship String?
+  sortOrder    Int      @default(0) @map("sort_order")
   createdAt    DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("emergency_contacts")
 }
 
@@ -531,12 +705,12 @@ model UserReport {
 }
 
 model DriverReward {
-  id         String   @id @default(uuid())
-  driverId   String   @map("driver_id")
-  title      String
-  amount     Float
-  status     String   @default("pending")
-  earnedAt   DateTime @default(now()) @map("earned_at")
+  id       String   @id @default(uuid())
+  driverId String   @map("driver_id")
+  title    String
+  amount   Float
+  status   String   @default("pending")
+  earnedAt DateTime @default(now()) @map("earned_at")
 
   driver DriverProfile @relation(fields: [driverId], references: [id])
 
@@ -602,33 +776,70 @@ model WalletTransaction {
   @@map("wallet_transactions")
 }
 
-enum TopUpRequestStatus {
-  pending
-  approved
-  rejected
+// ─── SELF-SERVICE TOP-UP (online payment gateway) ────────────
+// Drivers top up their own wallet via an online payment provider
+// (eSewa for now). Money is credited ONLY after the backend verifies
+// the payment server-to-server against the provider — the client's
+// success callback is never trusted on its own.
 
-  @@map("topup_request_status")
+enum PaymentProvider {
+  esewa
+
+  @@map("payment_provider")
 }
 
-// Wallet top-ups are never self-service: money enters the system only
-// after an admin verifies the off-app payment and approves the request.
-model TopUpRequest {
-  id          String             @id @default(uuid())
-  userId      String             @map("user_id")
+enum WalletTopupStatus {
+  initiated // intent created, provider form not yet completed
+  pending // returned from provider, awaiting server-side verification
+  completed // verified with provider + wallet credited (terminal)
+  failed // provider reported failure / verification mismatch (terminal)
+  expired // never completed within the allowed window (terminal)
+  refunded // was credited, then provider reported a refund → reversed (terminal)
+
+  @@map("wallet_topup_status")
+}
+
+model WalletTopup {
+  id       String          @id @default(uuid())
+  userId   String          @map("user_id")
+  provider PaymentProvider @default(esewa)
+
+  // Amount the driver asked to load (NPR). totalAmount is what the provider
+  // charges (== amount here; no tax/service charge on a wallet load) and is
+  // the value bound into the signature, so it can't be tampered mid-flight.
   amount      Float
-  status      TopUpRequestStatus @default(pending)
-  // Payer-supplied reference for the off-app payment (bank slip no., etc.)
-  reference   String?
-  adminNote   String?            @map("admin_note")
-  processedBy String?            @map("processed_by")
-  processedAt DateTime?          @map("processed_at")
-  createdAt   DateTime           @default(now()) @map("created_at")
+  totalAmount Float @map("total_amount")
+
+  status WalletTopupStatus @default(initiated)
+
+  // Our idempotency key sent to the provider. Unique → the same intent can
+  // never be replayed to create a second credit.
+  transactionUuid String  @unique @map("transaction_uuid")
+  // Provider's own settlement reference (eSewa transaction_code / ref_id),
+  // populated on success. Unique → a provider ref can be credited at most once.
+  providerRef     String? @unique @map("provider_ref")
+
+  // The wallet_transaction id created when this top-up was credited. Its
+  // presence is the audit link proving the money movement happened exactly once.
+  creditedTxnId String? @map("credited_txn_id")
+
+  // Captured for fraud/audit traceability (never used for authz).
+  ipAddress String? @map("ip_address")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  completedAt DateTime? @map("completed_at")
+
+  // G3 refund handling: the amount reversed by a compensating debit and when
+  // it was applied. Null until (and unless) the provider reports a refund.
+  refundedAmount Float?    @map("refunded_amount")
+  refundedAt     DateTime? @map("refunded_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
-  @@map("topup_requests")
+  @@map("wallet_topups")
 }
 
 model FraudEvent {

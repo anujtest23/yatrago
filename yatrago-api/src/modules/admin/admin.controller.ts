@@ -20,7 +20,6 @@ import {
 import { AdminService } from './admin.service';
 import { RejectDriverDto } from './dto/reject-driver.dto';
 import { RejectPayoutDto } from './dto/reject-payout.dto';
-import { RejectTopUpDto } from './dto/reject-topup.dto';
 import { UpdateConfigDto } from './dto/update-config.dto';
 import { RejectVehicleDto } from './dto/reject-vehicle.dto';
 import { OverrideRidePriceDto } from './dto/override-ride-price.dto';
@@ -29,6 +28,15 @@ import { HideRatingDto } from './dto/hide-rating.dto';
 import { CreditWalletDto } from './dto/credit-wallet.dto';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateAdminRoleDto } from './dto/update-admin-role.dto';
+import { RejectReactivationDto } from './dto/reject-reactivation.dto';
+import { ReactivationStatus } from '@prisma/client';
+import { CouponsService } from '../coupons/coupons.service';
+import { CreateCouponDto } from '../coupons/dto/create-coupon.dto';
+import { UpdateCouponDto } from '../coupons/dto/update-coupon.dto';
+import { SupportService } from '../support/support.service';
+import { ReplyTicketDto } from '../support/dto/reply-ticket.dto';
+import { UpdateIssueDto } from '../support/dto/update-issue.dto';
+import { SupportStatus, ReportStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
 import { SuperAdminGuard } from './guards/super-admin.guard';
@@ -41,7 +49,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 @UseGuards(JwtAuthGuard, AdminIpGuard, AdminGuard)
 @Controller('admin')
 export class AdminController {
-  constructor(private adminService: AdminService) {}
+  constructor(
+    private adminService: AdminService,
+    private coupons: CouponsService,
+    private support: SupportService,
+  ) {}
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Get KPIs — users, drivers, trips, revenue' })
@@ -177,6 +189,126 @@ export class AdminController {
     return this.adminService.rejectPayout(admin.id, id, dto);
   }
 
+  // ── Account reactivation requests ────────────────────────────
+  @Get('reactivations')
+  @ApiOperation({
+    summary: 'List account reactivation requests (deleted phone re-login)',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['pending', 'approved', 'rejected'],
+  })
+  getReactivations(@Query('status') status?: ReactivationStatus) {
+    return this.adminService.listReactivationRequests(status);
+  }
+
+  @Patch('reactivations/:id/approve')
+  @ApiOperation({
+    summary: 'Approve a reactivation request and restore the account',
+  })
+  @ApiParam({ name: 'id', description: 'Reactivation request ID' })
+  approveReactivation(
+    @CurrentUser() admin: any,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.adminService.approveReactivation(admin.id, id);
+  }
+
+  @Patch('reactivations/:id/reject')
+  @ApiOperation({ summary: 'Reject a reactivation request' })
+  @ApiParam({ name: 'id', description: 'Reactivation request ID' })
+  rejectReactivation(
+    @CurrentUser() admin: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectReactivationDto,
+  ) {
+    return this.adminService.rejectReactivation(admin.id, id, dto);
+  }
+
+  // ── Coupons ──────────────────────────────────────────────────
+  @Get('coupons')
+  @ApiOperation({ summary: 'List all coupons' })
+  getCoupons() {
+    return this.coupons.list();
+  }
+
+  @Post('coupons')
+  @ApiOperation({ summary: 'Create a coupon' })
+  createCoupon(@Body() dto: CreateCouponDto) {
+    return this.coupons.create(dto);
+  }
+
+  @Patch('coupons/:id')
+  @ApiOperation({ summary: 'Update a coupon' })
+  @ApiParam({ name: 'id', description: 'Coupon ID' })
+  updateCoupon(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCouponDto,
+  ) {
+    return this.coupons.update(id, dto);
+  }
+
+  @Delete('coupons/:id')
+  @ApiOperation({ summary: 'Deactivate a coupon (soft delete)' })
+  @ApiParam({ name: 'id', description: 'Coupon ID' })
+  deactivateCoupon(@Param('id', ParseUUIDPipe) id: string) {
+    return this.coupons.remove(id);
+  }
+
+  @Get('coupons/:id/redemptions')
+  @ApiOperation({ summary: 'List redemptions for a coupon' })
+  @ApiParam({ name: 'id', description: 'Coupon ID' })
+  couponRedemptions(@Param('id', ParseUUIDPipe) id: string) {
+    return this.coupons.redemptions(id);
+  }
+
+  // ── Contact Us tickets ───────────────────────────────────────
+  @Get('support/tickets')
+  @ApiOperation({ summary: 'List Contact Us tickets' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['open', 'in_progress', 'closed'],
+  })
+  getTickets(@Query('status') status?: SupportStatus) {
+    return this.support.listTickets(status);
+  }
+
+  @Patch('support/tickets/:id')
+  @ApiOperation({ summary: 'Reply to / update a support ticket' })
+  @ApiParam({ name: 'id', description: 'Ticket ID' })
+  replyTicket(
+    @CurrentUser() admin: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReplyTicketDto,
+  ) {
+    return this.support.replyTicket(admin.id, id, dto);
+  }
+
+  // ── Issue reports ────────────────────────────────────────────
+  @Get('support/issues')
+  @ApiOperation({ summary: 'List ride issue reports' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['open', 'investigating', 'resolved', 'dismissed'],
+  })
+  getIssues(@Query('status') status?: ReportStatus) {
+    return this.support.listIssues(status);
+  }
+
+  @Patch('support/issues/:id')
+  @ApiOperation({ summary: 'Assign / resolve an issue report' })
+  @ApiParam({ name: 'id', description: 'Issue report ID' })
+  updateIssue(
+    @CurrentUser() admin: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateIssueDto,
+  ) {
+    return this.support.updateIssue(admin.id, id, dto);
+  }
+
   @Get('sos')
   @ApiOperation({ summary: 'List SOS alerts' })
   @ApiQuery({
@@ -258,37 +390,9 @@ export class AdminController {
     return this.adminService.getFraudEvents(userId);
   }
 
-  @Get('topup-requests')
-  @ApiOperation({ summary: 'List wallet top-up requests' })
-  getTopUpRequests(@Query('status') status?: string) {
-    const allowed = ['pending', 'approved', 'rejected'] as const;
-    return this.adminService.getTopUpRequests(
-      allowed.includes(status as (typeof allowed)[number])
-        ? (status as (typeof allowed)[number])
-        : undefined,
-    );
-  }
-
-  @Patch('topup-requests/:id/approve')
-  @ApiOperation({ summary: 'Approve a top-up request and credit the wallet' })
-  @ApiParam({ name: 'id' })
-  approveTopUpRequest(
-    @CurrentUser() admin: any,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.adminService.approveTopUpRequest(admin.id, id);
-  }
-
-  @Patch('topup-requests/:id/reject')
-  @ApiOperation({ summary: 'Reject a top-up request' })
-  @ApiParam({ name: 'id' })
-  rejectTopUpRequest(
-    @CurrentUser() admin: any,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: RejectTopUpDto,
-  ) {
-    return this.adminService.rejectTopUpRequest(admin.id, id, dto.note);
-  }
+  // Wallet top-ups are now self-service through the payment gateway (eSewa).
+  // Admins no longer approve/reject top-up requests; they retain only the
+  // manual wallet-credit power below for refunds/support corrections.
 
   @Patch('rides/:id/cancel')
   @ApiOperation({ summary: 'Force-cancel a ride with full refunds' })

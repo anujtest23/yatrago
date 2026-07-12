@@ -44,9 +44,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
       });
     }
 
+    // A machine-readable `code` (when the thrower supplied one) lets clients
+    // branch on the failure — e.g. the app's insufficient-balance dialog —
+    // without brittle string matching on the human message.
+    const code =
+      typeof message === 'object' ? (message as any).code : undefined;
+
     response.status(status).json({
       success: false,
       statusCode: status,
+      ...(code ? { code } : {}),
       message:
         typeof message === 'object'
           ? (message as any).message || message

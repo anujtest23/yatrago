@@ -195,4 +195,52 @@ export const appConfig = {
   r2SecretKey: process.env.R2_SECRET_KEY ?? '',
   r2BucketName: process.env.R2_BUCKET_NAME ?? '',
   r2PublicUrl: process.env.R2_PUBLIC_URL ?? '',
+
+  // ── eSewa payment gateway (wallet top-ups) ─────────────────────
+  // The signing secret is a real credential: production refuses to boot
+  // without it (fail secure), and it is NEVER hardcoded in source. The
+  // sandbox test value lives only in .env / .env.example for local dev.
+  esewa: {
+    // ePay-v2 endpoints. Sandbox by default; set the *_URL vars to the
+    // live endpoints (esewa.com.np) when going to production.
+    gatewayUrl:
+      process.env.ESEWA_GATEWAY_URL ??
+      'https://rc-epay.esewa.com.np/api/epay/main/v2/form',
+    statusUrl:
+      process.env.ESEWA_STATUS_URL ??
+      'https://rc-epay.esewa.com.np/api/epay/transaction/status/',
+    productCode: process.env.ESEWA_PRODUCT_CODE ?? 'EPAYTEST',
+    // HMAC-SHA256 signing secret. Required (32+ chars not enforced — eSewa's
+    // own key is shorter) in production; dev falls back to the public sandbox
+    // key so local setup needs zero extra config.
+    secretKey: isProduction
+      ? (() => {
+          const v = process.env.ESEWA_SECRET_KEY;
+          if (!v)
+            throw new Error(
+              'FATAL: ESEWA_SECRET_KEY must be set in production.',
+            );
+          return v;
+        })()
+      : (process.env.ESEWA_SECRET_KEY ?? '8gBm/:&EnhH.1/q'),
+    // Where eSewa redirects the in-app WebView after pay/cancel. The backend
+    // does NOT rely on these callbacks for crediting (it re-verifies
+    // server-to-server); they exist only so the WebView can detect the
+    // outcome and close. Must be absolute https URLs eSewa will accept.
+    successUrl:
+      process.env.ESEWA_SUCCESS_URL ??
+      'https://yatrago.app/payments/esewa/success',
+    failureUrl:
+      process.env.ESEWA_FAILURE_URL ??
+      'https://yatrago.app/payments/esewa/failure',
+    // A top-up intent must be completed within this window; older
+    // `initiated`/`pending` rows are treated as expired and never credited.
+    intentTtlMinutes: parseInt(
+      process.env.ESEWA_INTENT_TTL_MINUTES ?? '30',
+      10,
+    ),
+    // Per-user self-service top-up guardrails (NPR).
+    minAmount: parseInt(process.env.ESEWA_MIN_TOPUP ?? '100', 10),
+    maxAmount: parseInt(process.env.ESEWA_MAX_TOPUP ?? '100000', 10),
+  },
 };

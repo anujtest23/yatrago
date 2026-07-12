@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../database/prisma.service';
 import { AppConfigService } from '../platform/app-config.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CouponsService } from '../coupons/coupons.service';
 
 // Expires stale pending booking requests the driver never responded to,
 // after the admin-configured window. Pending requests do not reserve seats
@@ -15,6 +16,7 @@ export class BookingExpiryJob {
     private prisma: PrismaService,
     private appConfig: AppConfigService,
     private notifications: NotificationsService,
+    private coupons: CouponsService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -42,6 +44,9 @@ export class BookingExpiryJob {
           },
         });
         if (updated.count === 0) continue;
+
+        // Release any coupon redemption tied to the expired request.
+        await this.coupons.reverseForBooking(booking.id);
 
         await this.notifications.createNotification(
           booking.passengerId,

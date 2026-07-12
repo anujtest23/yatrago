@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import {
-  approveTopUpRequest,
-  getTopUpRequests,
-  rejectTopUpRequest,
-  type TopUpRequestRow,
+  approveReactivation,
+  getReactivations,
+  rejectReactivation,
 } from '../api/admin';
 import { errorMessage } from '../api/client';
+import type { ReactivationRow } from '../api/types';
 import { useAsync } from '../lib/useAsync';
-import { dateTime, npr } from '../lib/format';
+import { dateTime } from '../lib/format';
 import { ReasonModal } from '../components/ReasonModal';
 import {
   Button,
@@ -22,29 +22,28 @@ import { TBody, TD, THead, TR, Table } from '../components/Table';
 
 const FILTERS = ['pending', 'approved', 'rejected', ''];
 
-export default function TopUps() {
+export default function Reactivations() {
   const [status, setStatus] = useState('pending');
   const { data, loading, error, reload } = useAsync(
-    () => getTopUpRequests(status || undefined),
+    () => getReactivations(status || undefined),
     [status],
   );
 
-  const [rejecting, setRejecting] = useState<TopUpRequestRow | null>(null);
+  const [rejecting, setRejecting] = useState<ReactivationRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const onApprove = async (r: TopUpRequestRow) => {
+  const onApprove = async (r: ReactivationRow) => {
     if (
       !window.confirm(
-        `Credit ${npr(r.amount)} to ${r.user.fullName ?? r.user.phoneNumber}? ` +
-          'Confirm the off-app payment was received first.',
+        `Approve reactivation for ${r.phoneNumber}? This restores the previous account.`,
       )
     )
       return;
     setBusyId(r.id);
     setActionError(null);
     try {
-      await approveTopUpRequest(r.id);
+      await approveReactivation(r.id);
       reload();
     } catch (err) {
       setActionError(errorMessage(err));
@@ -56,8 +55,8 @@ export default function TopUps() {
   return (
     <>
       <PageHeader
-        title="Wallet Top-Ups"
-        subtitle="Verify off-app payments before crediting user wallets"
+        title="Reactivation Requests"
+        subtitle="Previously-deleted numbers attempting to sign in — approve to restore the account"
         actions={
           <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1">
             {FILTERS.map((f) => (
@@ -86,38 +85,37 @@ export default function TopUps() {
       <Card>
         {loading && <Spinner />}
         {error && <ErrorState message={error} />}
-        {data && data.requests.length === 0 && (
-          <EmptyState message="No top-up requests match this filter." />
+        {data && data.length === 0 && (
+          <EmptyState message="No reactivation requests match this filter." />
         )}
-        {data && data.requests.length > 0 && (
+        {data && data.length > 0 && (
           <Table>
             <THead
-              cols={['User', 'Amount', 'Reference', 'Status', 'Requested', '']}
+              cols={['Phone', 'Previous Account', 'Status', 'Requested', '']}
             />
             <TBody>
-              {data.requests.map((r) => (
+              {data.map((r) => (
                 <TR key={r.id}>
+                  <TD className="font-medium text-slate-900">
+                    {r.phoneNumber}
+                  </TD>
                   <TD>
-                    <p className="font-medium text-slate-900">
-                      {r.user.fullName ?? '—'}
+                    <p className="text-slate-900">
+                      {r.previousUser?.fullName ?? '—'}
                     </p>
                     <p className="text-xs text-slate-400">
-                      {r.user.phoneNumber}
+                      {r.previousUser?.accountStatus ?? ''}
                     </p>
-                  </TD>
-                  <TD className="font-medium">{npr(r.amount)}</TD>
-                  <TD className="text-sm text-slate-500">
-                    {r.reference || '—'}
                   </TD>
                   <TD>
                     <StatusBadge status={r.status} />
-                    {r.adminNote && (
+                    {r.rejectionReason && (
                       <p className="mt-0.5 text-xs text-rose-500">
-                        {r.adminNote}
+                        {r.rejectionReason}
                       </p>
                     )}
                   </TD>
-                  <TD>{dateTime(r.createdAt)}</TD>
+                  <TD>{dateTime(r.requestedAt)}</TD>
                   <TD>
                     {r.status === 'pending' && (
                       <div className="flex justify-end gap-2">
@@ -132,7 +130,7 @@ export default function TopUps() {
                           disabled={busyId === r.id}
                           onClick={() => onApprove(r)}
                         >
-                          {busyId === r.id ? '…' : 'Approve & Credit'}
+                          {busyId === r.id ? '…' : 'Approve'}
                         </Button>
                       </div>
                     )}
@@ -146,11 +144,11 @@ export default function TopUps() {
 
       <ReasonModal
         open={!!rejecting}
-        title="Reject top-up request"
-        label="Reason shown to the requester"
-        confirmText="Reject"
+        title="Reject reactivation"
+        label="Reason (sent to the applicant)"
+        confirmText="Reject request"
         onClose={() => setRejecting(null)}
-        onConfirm={(reason) => rejectTopUpRequest(rejecting!.id, reason)}
+        onConfirm={(reason) => rejectReactivation(rejecting!.id, reason)}
         onDone={() => {
           setRejecting(null);
           reload();

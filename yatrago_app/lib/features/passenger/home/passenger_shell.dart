@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/router/route_names.dart';
+import '../../shared/chat/chat_unread.dart';
 
 class PassengerShell extends StatelessWidget {
   final Widget child;
@@ -12,8 +13,9 @@ class PassengerShell extends StatelessWidget {
     if (location.startsWith(RouteNames.passengerHome)) return 0;
     if (location.startsWith(RouteNames.search)) return 1;
     if (location.startsWith(RouteNames.passengerMyRides)) return 2;
-    if (location.startsWith(RouteNames.notifications)) return 3;
-    if (location.startsWith(RouteNames.settings)) return 4;
+    if (location.startsWith(RouteNames.passengerMessages)) return 3;
+    if (location.startsWith(RouteNames.notifications)) return 4;
+    if (location.startsWith(RouteNames.settings)) return 5;
     return 0;
   }
 
@@ -65,17 +67,25 @@ class PassengerShell extends StatelessWidget {
                   onTap: () => context.go(RouteNames.passengerMyRides),
                 ),
                 _NavItem(
+                  activeIcon: Icons.chat_bubble_rounded,
+                  inactiveIcon: Icons.chat_bubble_outline_rounded,
+                  label: 'Messages',
+                  selected: index == 3,
+                  badgeListenable: ChatUnread.instance,
+                  onTap: () => context.go(RouteNames.passengerMessages),
+                ),
+                _NavItem(
                   activeIcon: Icons.notifications_rounded,
                   inactiveIcon: Icons.notifications_outlined,
                   label: 'Alerts',
-                  selected: index == 3,
+                  selected: index == 4,
                   onTap: () => context.go(RouteNames.notifications),
                 ),
                 _NavItem(
                   activeIcon: Icons.person_rounded,
                   inactiveIcon: Icons.person_outline_rounded,
                   label: 'Profile',
-                  selected: index == 4,
+                  selected: index == 5,
                   onTap: () => context.go(RouteNames.settings),
                 ),
               ],
@@ -93,6 +103,7 @@ class _NavItem extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final ChatUnread? badgeListenable;
 
   const _NavItem({
     required this.activeIcon,
@@ -100,6 +111,7 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.badgeListenable,
   });
 
   @override
@@ -112,7 +124,11 @@ class _NavItem extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(selected ? activeIcon : inactiveIcon, size: 24, color: color),
+          _IconWithBadge(
+            icon: Icon(selected ? activeIcon : inactiveIcon,
+                size: 24, color: color),
+            badgeListenable: badgeListenable,
+          ),
           const SizedBox(height: 4),
           Text(
             label,
@@ -134,6 +150,56 @@ class _NavItem extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Overlays a live unread-count badge on a nav icon. Rebuilds only when the
+/// [ChatUnread] counter changes.
+class _IconWithBadge extends StatelessWidget {
+  final Widget icon;
+  final ChatUnread? badgeListenable;
+
+  const _IconWithBadge({required this.icon, this.badgeListenable});
+
+  @override
+  Widget build(BuildContext context) {
+    if (badgeListenable == null) return icon;
+    return AnimatedBuilder(
+      animation: badgeListenable!,
+      builder: (context, _) {
+        final count = badgeListenable!.count;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            icon,
+            if (count > 0)
+              Positioned(
+                right: -6,
+                top: -4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  constraints: const BoxConstraints(minWidth: 16),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  child: Text(
+                    count > 99 ? '99+' : '$count',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      height: 1.1,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

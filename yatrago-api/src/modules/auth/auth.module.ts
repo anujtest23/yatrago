@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { RedisService } from './redis.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { PendingDeletionGuard } from './guards/pending-deletion.guard';
 import { TotpService } from './totp.service';
 import { appConfig } from '../../config/app.config';
 
@@ -27,8 +28,9 @@ import { appConfig } from '../../config/app.config';
     RedisService,
     JwtStrategy,
     JwtAuthGuard,
+    PendingDeletionGuard,
     TotpService,
   ],
-  exports: [JwtAuthGuard, RedisService, JwtModule],
+  exports: [JwtAuthGuard, PendingDeletionGuard, RedisService, JwtModule],
 })
 export class AuthModule {}

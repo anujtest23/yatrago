@@ -1,10 +1,13 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/router/route_names.dart';
 import '../../../core/storage/secure_storage.dart';
+import '../../shared/chat/chat_unread.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -52,6 +55,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     if (!mounted) return;
 
     if (isLoggedIn) {
+      // Bring the chat socket up and seed the unread badge for this session.
+      unawaited(ChatUnread.instance.start());
       // Check which mode they were in
       final mode = await SecureStorage.getActiveMode();
       if (mode == 'driver') {

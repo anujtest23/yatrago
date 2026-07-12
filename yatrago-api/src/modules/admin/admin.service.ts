@@ -19,6 +19,8 @@ import { HideRatingDto } from './dto/hide-rating.dto';
 import { CreditWalletDto } from './dto/credit-wallet.dto';
 import { CreateAdminDto, GrantableRole } from './dto/create-admin.dto';
 import { UpdateAdminRoleDto } from './dto/update-admin-role.dto';
+import { RejectReactivationDto } from './dto/reject-reactivation.dto';
+import { ReactivationStatus } from '@prisma/client';
 import { AuditService } from '../platform/audit.service';
 import { WalletService } from '../platform/wallet.service';
 import { SmsService } from '../platform/sms.service';
@@ -722,6 +724,119 @@ export class AdminService {
     };
   }
 
+  // ── GET /admin/reactivations ─────────────────────────────────
+  // Requests raised when a previously-deleted phone number tries to log in.
+  async listReactivationRequests(status?: ReactivationStatus) {
+    return this.prisma.reactivationRequest.findMany({
+      where: status ? { status } : undefined,
+      orderBy: { requestedAt: 'desc' },
+      include: {
+        previousUser: {
+          select: { id: true, fullName: true, accountStatus: true },
+        },
+      },
+    });
+  }
+
+  // ── PATCH /admin/reactivations/:id/approve ───────────────────
+  // Restores the previous account (continuity) and makes the phone usable
+  // again. The user must re-run the OTP login to obtain a session.
+  async approveReactivation(adminId: string, requestId: string) {
+    const request = await this.prisma.reactivationRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) throw new NotFoundException('Reactivation request not found');
+    if (request.status !== 'pending') {
+      throw new BadRequestException(
+        `Only pending requests can be approved. Current status: ${request.status}`,
+      );
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: request.previousUserId },
+        data: {
+          accountStatus: 'active',
+          isActive: true,
+          deletionRequestedAt: null,
+        },
+      }),
+      this.prisma.reactivationRequest.update({
+        where: { id: requestId },
+        data: {
+          status: 'approved',
+          reviewedAt: new Date(),
+          reviewedBy: adminId,
+        },
+      }),
+    ]);
+
+    await this.notifications.createNotification(
+      request.previousUserId,
+      'system',
+      'Account Reactivated',
+      'Your account has been reactivated. You can now log in with your phone number.',
+      { requestId },
+    );
+    await this.sms.send(
+      request.phoneNumber,
+      'Your YatraGo account reactivation has been approved. Log in with your phone number to continue.',
+    );
+
+    await this.audit.log(
+      adminId,
+      'reactivation_approved',
+      'reactivation_request',
+      requestId,
+      { previousUserId: request.previousUserId },
+    );
+
+    return { message: 'Reactivation approved and account restored' };
+  }
+
+  // ── PATCH /admin/reactivations/:id/reject ────────────────────
+  async rejectReactivation(
+    adminId: string,
+    requestId: string,
+    dto: RejectReactivationDto,
+  ) {
+    const request = await this.prisma.reactivationRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) throw new NotFoundException('Reactivation request not found');
+    if (request.status !== 'pending') {
+      throw new BadRequestException(
+        `Only pending requests can be rejected. Current status: ${request.status}`,
+      );
+    }
+
+    const updated = await this.prisma.reactivationRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'rejected',
+        rejectionReason: dto.reason,
+        reviewedAt: new Date(),
+        reviewedBy: adminId,
+      },
+    });
+
+    // Account stays deleted. Notify the phone number so the person knows.
+    await this.sms.send(
+      request.phoneNumber,
+      `Your YatraGo account reactivation request was declined: ${dto.reason}`,
+    );
+
+    await this.audit.log(
+      adminId,
+      'reactivation_rejected',
+      'reactivation_request',
+      requestId,
+      { previousUserId: request.previousUserId, reason: dto.reason },
+    );
+
+    return { message: 'Reactivation request rejected', request: updated };
+  }
+
   // ── GET /admin/sos ───────────────────────────────────────────
   async getSosAlerts(status?: string) {
     const alerts = await this.prisma.sosAlert.findMany({
@@ -947,79 +1062,9 @@ export class AdminService {
     return { events, total: events.length };
   }
 
-  // ── GET /admin/topup-requests ────────────────────────────────
-  async getTopUpRequests(status?: 'pending' | 'approved' | 'rejected') {
-    const requests = await this.prisma.topUpRequest.findMany({
-      where: status ? { status } : {},
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: {
-        user: {
-          select: { id: true, fullName: true, phoneNumber: true },
-        },
-      },
-    });
-    return { requests, total: requests.length };
-  }
-
-  // ── PATCH /admin/topup-requests/:id/approve ──────────────────
-  async approveTopUpRequest(adminId: string, requestId: string) {
-    const request = await this.wallet.approveTopUpRequest(requestId, adminId);
-
-    await this.notifications.createNotification(
-      request.userId,
-      'wallet_topup',
-      'Top-Up Approved',
-      `Your top-up request of NPR ${request.amount} has been approved and credited to your wallet.`,
-      { topUpRequestId: request.id, amount: request.amount },
-    );
-
-    await this.audit.log(
-      adminId,
-      'topup_approved',
-      'topup_request',
-      requestId,
-      {
-        userId: request.userId,
-        amount: request.amount,
-      },
-    );
-
-    return { message: 'Top-up request approved and wallet credited', request };
-  }
-
-  // ── PATCH /admin/topup-requests/:id/reject ───────────────────
-  async rejectTopUpRequest(adminId: string, requestId: string, note?: string) {
-    const request = await this.wallet.rejectTopUpRequest(
-      requestId,
-      adminId,
-      note,
-    );
-
-    await this.notifications.createNotification(
-      request.userId,
-      'wallet_topup',
-      'Top-Up Rejected',
-      note
-        ? `Your top-up request of NPR ${request.amount} was rejected: ${note}`
-        : `Your top-up request of NPR ${request.amount} was rejected.`,
-      { topUpRequestId: request.id },
-    );
-
-    await this.audit.log(
-      adminId,
-      'topup_rejected',
-      'topup_request',
-      requestId,
-      {
-        userId: request.userId,
-        amount: request.amount,
-        note,
-      },
-    );
-
-    return { message: 'Top-up request rejected', request };
-  }
+  // Top-up approval/rejection removed: wallet top-ups are now self-service via
+  // the eSewa payment gateway (see PaymentsService). Admins keep only manual
+  // wallet crediting (creditWallet) for refunds/support.
 
   // ── PATCH /admin/rides/:id/cancel ────────────────────────────
   async forceCancelRide(adminId: string, rideId: string) {

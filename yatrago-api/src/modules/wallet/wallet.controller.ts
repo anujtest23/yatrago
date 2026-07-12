@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { WalletService } from '../platform/wallet.service';
-import { TopUpDto } from './dto/topup.dto';
 
+// Wallet top-ups are now self-service via the online payment gateway; see
+// PaymentsController (/wallet/payments/*). Admins no longer approve top-ups.
 @ApiTags('Wallet')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -16,20 +17,6 @@ export class WalletController {
   @ApiOperation({ summary: 'Get wallet balance and recent transactions' })
   getWallet(@CurrentUser() user: any) {
     return this.walletService.getBalance(user.id);
-  }
-
-  @Post('topup')
-  @ApiOperation({
-    summary: 'Request a wallet top-up (credited after admin verification)',
-  })
-  topUp(@CurrentUser() user: any, @Body() dto: TopUpDto) {
-    return this.walletService.requestTopUp(user.id, dto.amount, dto.reference);
-  }
-
-  @Get('topup-requests')
-  @ApiOperation({ summary: 'List my top-up requests and their status' })
-  listTopUpRequests(@CurrentUser() user: any) {
-    return this.walletService.listTopUpRequests(user.id);
   }
 
   @Get('commissions')

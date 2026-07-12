@@ -73,6 +73,32 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.client.del(`otp:${phone}`);
   }
 
+  // ── Action OTPs (sensitive in-session operations e.g. account deletion) ──
+  // Namespaced by a caller-supplied scope so they never collide with the
+  // login OTP keyed on the raw phone number.
+
+  /** Store an action OTP hash for `scope` — expires in 5 minutes. */
+  async setActionOtp(scope: string, otp: string): Promise<void> {
+    await this.client.set(
+      `action_otp:${scope}`,
+      this.hashOtp(scope, otp),
+      'EX',
+      300,
+    );
+  }
+
+  /** Timing-safe verification of an action OTP; single-use on success. */
+  async verifyActionOtp(scope: string, otp: string): Promise<boolean> {
+    const stored = await this.client.get(`action_otp:${scope}`);
+    if (!stored) return false;
+    const candidate = this.hashOtp(scope, otp);
+    const a = Buffer.from(stored, 'hex');
+    const b = Buffer.from(candidate, 'hex');
+    const ok = a.length === b.length && timingSafeEqual(a, b);
+    if (ok) await this.client.del(`action_otp:${scope}`);
+    return ok;
+  }
+
   // ── Abuse counters ────────────────────────────────────────────
 
   private async incrementWindow(

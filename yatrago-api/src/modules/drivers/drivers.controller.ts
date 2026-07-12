@@ -26,6 +26,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DriversService } from './drivers.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PendingDeletionGuard } from '../auth/guards/pending-deletion.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { imageMulterConfig } from '../../common/utils/multer.config';
 import { FileSignatureInterceptor } from '../../common/interceptors/file-signature.interceptor';
@@ -156,7 +157,7 @@ export class DriversController {
 
   @Post('payouts')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PendingDeletionGuard)
   @ApiOperation({ summary: 'Request a payout from wallet balance' })
   requestPayout(@CurrentUser() user: any, @Body() dto: RequestPayoutDto) {
     return this.driversService.requestPayout(user.id, dto);

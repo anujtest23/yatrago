@@ -20,6 +20,7 @@ import { TripsService } from './trips.service';
 import { CreateTripDto } from './dto/create-trip.dto';
 import { UpdateTripDto } from './dto/update-trip.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PendingDeletionGuard } from '../auth/guards/pending-deletion.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('Trips')
@@ -30,6 +31,7 @@ export class TripsController {
   constructor(private tripsService: TripsService) {}
 
   @Post()
+  @UseGuards(PendingDeletionGuard)
   @ApiOperation({ summary: 'Driver posts a new ride' })
   create(@CurrentUser() user: any, @Body() dto: CreateTripDto) {
     return this.tripsService.create(user.id, dto);
@@ -80,6 +82,7 @@ export class TripsController {
   }
 
   @Patch(':id/start')
+  @UseGuards(PendingDeletionGuard)
   @ApiOperation({
     summary: 'Driver starts a trip once passengers are confirmed',
   })

@@ -7,8 +7,12 @@ import type {
   Dashboard,
   DriverRow,
   Pagination,
+  CouponRow,
+  IssueReportRow,
   PayoutRow,
+  ReactivationRow,
   ReportRow,
+  SupportTicketRow,
   SosRow,
   TripRow,
   UserRow,
@@ -93,6 +97,56 @@ export const approvePayout = (id: string) =>
 export const rejectPayout = (id: string, reason: string) =>
   api.patch(`/admin/payouts/${id}/reject`, { reason }).then((r) => r.data);
 
+// ── Reactivation Requests ──────────────────────────────────────
+export const getReactivations = (status?: string) =>
+  api
+    .get<ReactivationRow[]>('/admin/reactivations', { params: { status } })
+    .then((r) => r.data);
+
+export const approveReactivation = (id: string) =>
+  api.patch(`/admin/reactivations/${id}/approve`).then((r) => r.data);
+
+export const rejectReactivation = (id: string, reason: string) =>
+  api.patch(`/admin/reactivations/${id}/reject`, { reason }).then((r) => r.data);
+
+// ── Coupons ────────────────────────────────────────────────────
+export const getCoupons = () =>
+  api.get<CouponRow[]>('/admin/coupons').then((r) => r.data);
+
+export const createCoupon = (body: Partial<CouponRow>) =>
+  api.post('/admin/coupons', body).then((r) => r.data);
+
+export const updateCoupon = (id: string, body: Partial<CouponRow>) =>
+  api.patch(`/admin/coupons/${id}`, body).then((r) => r.data);
+
+export const deactivateCoupon = (id: string) =>
+  api.delete(`/admin/coupons/${id}`).then((r) => r.data);
+
+export const getCouponRedemptions = (id: string) =>
+  api.get(`/admin/coupons/${id}/redemptions`).then((r) => r.data);
+
+// ── Support (Contact Us) ───────────────────────────────────────
+export const getTickets = (status?: string) =>
+  api
+    .get<SupportTicketRow[]>('/admin/support/tickets', { params: { status } })
+    .then((r) => r.data);
+
+export const replyTicket = (
+  id: string,
+  body: { reply?: string; status?: string },
+) => api.patch(`/admin/support/tickets/${id}`, body).then((r) => r.data);
+
+// ── Issue reports ──────────────────────────────────────────────
+export const getIssues = (status?: string) =>
+  api
+    .get<IssueReportRow[]>('/admin/support/issues', { params: { status } })
+    .then((r) => r.data);
+
+export const updateIssue = (
+  id: string,
+  body: { status?: string; assignedTo?: string; resolution?: string },
+) => api.patch(`/admin/support/issues/${id}`, body).then((r) => r.data);
+
 // ── SOS ────────────────────────────────────────────────────────
 export const getSosAlerts = (status?: string) =>
   api
@@ -163,30 +217,9 @@ export const updateAdminRole = (
 export const revokeAdmin = (userId: string) =>
   api.delete(`/admin/admins/${userId}`).then((r) => r.data);
 
-// ── Wallet top-up requests ─────────────────────────────────────
-export interface TopUpRequestRow {
-  id: string;
-  amount: number;
-  status: 'pending' | 'approved' | 'rejected';
-  reference?: string | null;
-  adminNote?: string | null;
-  createdAt: string;
-  processedAt?: string | null;
-  user: { id: string; fullName: string | null; phoneNumber: string };
-}
-export const getTopUpRequests = (status?: string) =>
-  api
-    .get<{ requests: TopUpRequestRow[]; total: number }>(
-      '/admin/topup-requests',
-      { params: { status } },
-    )
-    .then((r) => r.data);
-
-export const approveTopUpRequest = (id: string) =>
-  api.patch(`/admin/topup-requests/${id}/approve`).then((r) => r.data);
-
-export const rejectTopUpRequest = (id: string, note?: string) =>
-  api.patch(`/admin/topup-requests/${id}/reject`, { note }).then((r) => r.data);
+// Wallet top-ups are now self-service via the eSewa payment gateway; admins no
+// longer approve/reject top-up requests. Manual wallet credit (creditWallet)
+// remains for refunds/support corrections.
 
 // ── Fraud ──────────────────────────────────────────────────────
 export interface FlaggedUser {

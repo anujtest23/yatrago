@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateEmergencyContactDto {
@@ -7,9 +7,12 @@ export class CreateEmergencyContactDto {
   @MaxLength(100)
   fullName: string;
 
-  @ApiProperty({ example: '9800000000' })
+  @ApiProperty({ example: '+9779800000000' })
   @IsString()
-  @MaxLength(20)
+  // Accept local (98XXXXXXXX) or E.164 (+9779XXXXXXXXX) forms.
+  @Matches(/^\+?\d{7,15}$/, {
+    message: 'Enter a valid phone number (7-15 digits, optional +)',
+  })
   phoneNumber: string;
 
   @ApiPropertyOptional({ example: 'Sister' })

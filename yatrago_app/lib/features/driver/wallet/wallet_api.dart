@@ -14,19 +14,6 @@ class WalletApi {
     }
   }
 
-  // POST /wallet/topup
-  static Future<Map<String, dynamic>> topUp(double amount) async {
-    try {
-      final response = await DioClient.instance.post(
-        ApiConstants.walletTopup,
-        data: {'amount': amount},
-      );
-      return response.data['data'] ?? response.data;
-    } on DioException catch (e) {
-      throw ApiException.fromDioError(e);
-    }
-  }
-
   // GET /wallet/commissions — driver commission deduction history
   static Future<List<Map<String, dynamic>>> getCommissions() async {
     try {
